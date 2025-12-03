@@ -1,6 +1,6 @@
 import httpStatus from "http-status";
 import { User } from "../model/user.model.js";
-import { uploadOnCloudinary } from "../utils/commonMethod.js";
+import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.js";
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
@@ -21,13 +21,23 @@ export const updateProfile = catchAsync(async (req, res) => {
   const { name } = req.body;
 
   const user = await User.findById(req.user._id);
-
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
-  if (name) user.name = name;
+  if (name) user.name = name.trim();
 
-  if (req.file) {
-    const upload = await uploadOnCloudinary(req.file.buffer);
+  if (req.file?.buffer) {
+    // ✅ delete previous avatar if exists
+    const oldPublicId = user?.avatar?.public_id;
+    if (oldPublicId) {
+      await deleteFromCloudinary(oldPublicId).catch(() => {});
+    }
+
+    // ✅ upload new avatar
+    const upload = await uploadOnCloudinary(req.file.buffer, {
+      folder: "docmobi/users",        // optional
+      resource_type: "image",         // optional
+    });
+
     user.avatar = { public_id: upload.public_id, url: upload.secure_url };
   }
 
@@ -40,6 +50,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     data: user,
   });
 });
+
 
 export const changePassword = catchAsync(async (req, res) => {
   const { currentPassword, newPassword, confirmPassword } = req.body;
