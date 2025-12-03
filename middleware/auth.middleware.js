@@ -9,10 +9,13 @@ export const protect = async (req, res, next) => {
 
   try {
     const decoded = await jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+    console.log("Decoded token:", decoded);
     // console.log(decoded)
     const user = await User.findById(decoded._id);
     if (user && (await User.isOTPVerified(user._id))) {
+      
       req.user = user;
+      console.log("User authenticated:", user);
     }
     next();
   } catch (err) {
@@ -23,6 +26,7 @@ export const protect = async (req, res, next) => {
 
 // New middleware to check for 'Admin' role
 export const isAdmin = (req, res, next) => {
+  console.log("Checking admin role for user:", req.user);
   if (req.user?.role !== "admin") {
     throw new AppError(403, "Access denied. You are not an admin.");
   }
@@ -33,7 +37,7 @@ export const isAdmin = (req, res, next) => {
 // New middleware to check for 'Doctor' role
 export const isDoctor = (req, res, next) => {
   if (req.user?.role !== "doctor") {
-    throw new AppError(403, "Access denied. You are not an driver.");
+    throw new AppError(403, "Access denied. You are not an doctor.");
   }
   next();
 };
@@ -41,7 +45,7 @@ export const isDoctor = (req, res, next) => {
 //middleware to check if the user is a patient
 export const isPatient = (req, res, next) => {
   if (req.user?.role !== "patient") {
-    throw new AppError(403, "Access denied. You are not an driver.");
+    throw new AppError(403, "Access denied. You are not an patient.");
   }
   next();
 };

@@ -1,21 +1,24 @@
 import { Router } from "express";
 import {
   createCategory,
-  getAllCategories,
   getSingleCategory,
   updateCategory,
   deleteCategory,
+  getAllCategoriesAdmin,
+  getAllCategoriesPublic,
 } from "../controller/category.controller.js";
 import upload from "../middleware/multer.middleware.js";
-import { protect, isAdmin } from "../middleware/auth.middleware.js"; // adjust path
+import { protect, isAdmin } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
 // Public
-router.get("/", getAllCategories);
+router.get("/", getAllCategoriesPublic);
 router.get("/:id", getSingleCategory);
 
 // Admin only
+router.get("/admin/all", protect, isAdmin, getAllCategoriesAdmin);
+
 router.post(
   "/",
   protect,
@@ -32,11 +35,6 @@ router.patch(
   updateCategory
 );
 
-router.delete(
-  "/:id",
-  protect,
-  isAdmin,
-  deleteCategory
-);
+router.delete("/:id", protect, isAdmin, deleteCategory);
 
 export default router;

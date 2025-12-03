@@ -5,10 +5,17 @@ import catchAsync from "../utils/catchAsync.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/commonMethod.js";
 import sendResponse from "../utils/sendResponse.js";
 
+
 // POST
 export const createCategory = catchAsync(async (req, res) => {
   const speciality_name = (req.body.speciality_name || "").trim();
   if (!speciality_name) throw new AppError(400, "speciality_name is required");
+
+  // accept status from body; default true
+  let status = true;
+  if (req.body.status !== undefined) {
+    status = req.body.status === "true" || req.body.status === true;
+  }
 
   let category_image_url = null;
   let category_image_public_id = null;
@@ -25,6 +32,7 @@ export const createCategory = catchAsync(async (req, res) => {
 
   const created = await Category.create({
     speciality_name,
+    status, // ✅ now can be true/false
     category_image_url,
     category_image_public_id,
   });
@@ -37,11 +45,18 @@ export const createCategory = catchAsync(async (req, res) => {
   });
 });
 
+
 // GET ALL
-export const getAllCategories = catchAsync(async (req, res) => {
+export const getAllCategoriesAdmin = catchAsync(async (req, res) => {
   const data = await Category.find().sort({ createdAt: -1 });
   sendResponse(res, { statusCode: 200, success: true, message: "Category fetched successfully", data });
 });
+
+export const getAllCategoriesPublic = catchAsync(async (req, res) => {
+  const data = await Category.find({ status: true }).sort({ createdAt: -1 });
+  sendResponse(res, { statusCode: 200, success: true, message: "Category fetched successfully", data });
+});
+
 
 // GET SINGLE
 export const getSingleCategory = catchAsync(async (req, res) => {

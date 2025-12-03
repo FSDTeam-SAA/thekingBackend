@@ -178,8 +178,8 @@ const userSchema = new Schema(
 
     role: {
       type: String,
-      enum: ["user", "admin", "storeman"], // "user" = patient, "storeman" = doctor
-      default: "user",
+      enum: ["patient", "admin", "doctor"], // "user" = patient, "storeman" = doctor
+      default: "patient",
     },
 
     // 👇 doctor approval status (used in login check)
