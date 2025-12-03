@@ -39,6 +39,7 @@ app.use("/public", express.static("public"));
 // Mount the main router
 app.use("/api/v1", router);
 
+
 // Basic route for testing
 app.get("/", (req, res) => {
   res.send("Server is running...!!");

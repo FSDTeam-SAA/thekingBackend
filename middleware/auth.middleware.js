@@ -20,6 +20,8 @@ export const protect = async (req, res, next) => {
   }
 };
 
+
+// New middleware to check for 'Admin' role
 export const isAdmin = (req, res, next) => {
   if (req.user?.role !== "admin") {
     throw new AppError(403, "Access denied. You are not an admin.");
@@ -27,8 +29,18 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
-export const isDriver = (req, res, next) => {
-  if (req.user?.role !== "driver") {
+
+// New middleware to check for 'Doctor' role
+export const isDoctor = (req, res, next) => {
+  if (req.user?.role !== "doctor") {
+    throw new AppError(403, "Access denied. You are not an driver.");
+  }
+  next();
+};
+
+//middleware to check if the user is a patient
+export const isPatient = (req, res, next) => {
+  if (req.user?.role !== "patient") {
     throw new AppError(403, "Access denied. You are not an driver.");
   }
   next();
