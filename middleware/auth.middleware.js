@@ -12,7 +12,7 @@ export const protect = async (req, res, next) => {
     console.log("Decoded token:", decoded);
     // console.log(decoded)
     const user = await User.findById(decoded._id);
-    if (user && (await User.isOTPVerified(user._id))) {
+    if (user) {
       
       req.user = user;
       console.log("User authenticated:", user);

@@ -1,51 +1,86 @@
 import mongoose, { Schema } from "mongoose";
 import bcrypt from "bcryptjs";
 
+const DAYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
+
+const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const degreeSchema = new Schema(
+  {
+    title: { type: String, trim: true, required: true },
+    institute: { type: String, trim: true },
+    year: { type: Number },
+  },
+  { _id: false }
+);
+
+const slotSchema = new Schema(
+  {
+    start: { type: String, required: true, match: timeRegex },
+    end: { type: String, required: true, match: timeRegex },
+  },
+  { _id: false }
+);
+
+const dayScheduleSchema = new Schema(
+  {
+    day: { type: String, enum: DAYS, required: true },
+    isActive: { type: Boolean, default: false },
+    slots: { type: [slotSchema], default: [] },
+  },
+  { _id: false }
+);
+
 const userSchema = new Schema(
   {
-    firstName: {
-      type: String,
-      trim: true,
-    },
-    lastName: {
-      type: String,
-      trim: true,
-    },
-    name: { type: String },
+    fullName: { type: String, trim: true, required: true },
 
-    email: {
-      type: String,
-      trim: true,
-      unique: true, // ✅ unique email
-    },
+    email: { type: String, trim: true, unique: true },
 
     password: { type: String, select: false },
 
-    username: {
-      type: String,
-      trim: true,
-    },
+    username: { type: String, trim: true },
 
     phone: {
       type: String,
       trim: true,
-      unique: true, // ✅ unique phone
-      sparse: true, // allows multiple docs with null/undefined
+      unique: true,
+      sparse: true,
     },
 
-    // 👇 doctor-related fields to match auth.controller
-    specialty: {
-      type: String,
-      trim: true,
-    },
+    experienceYears: { type: Number, default: 0, min: 0 },
+
+    // Doctor fields
+    specialty: { type: String, trim: true },
+    specialties: [{ type: String, trim: true }],
+
     medicalLicenseNumber: {
       type: String,
       trim: true,
-      unique: true, // ✅ unique license
+      unique: true,
       sparse: true,
     },
 
     bio: { type: String, maxlength: 500 },
+
+    degrees: { type: [degreeSchema], default: [] },
+
+    fees: {
+      amount: { type: Number, default: 0, min: 0 },
+      currency: { type: String, default: "USD", trim: true },
+    },
+
+    visitingHoursText: { type: String, trim: true },
+
+    weeklySchedule: { type: [dayScheduleSchema], default: [] },
 
     gender: {
       type: String,
@@ -62,13 +97,9 @@ const userSchema = new Schema(
 
     selfDescription: { type: String, maxlength: 1000 },
 
-    dob: {
-      type: Date,
-    },
+    dob: { type: Date },
 
-    height: {
-      type: String,
-    },
+    height: { type: String },
 
     sexualOrientation: {
       type: String,
@@ -78,38 +109,16 @@ const userSchema = new Schema(
     personalityType: {
       type: String,
       enum: [
-        "INTJ",
-        "INTP",
-        "INFJ",
-        "INFP",
-        "ISTJ",
-        "ISTP",
-        "ISFJ",
-        "ISFP",
-        "ENTJ",
-        "ENTP",
-        "ENFJ",
-        "ENFP",
-        "ESTJ",
-        "ESTP",
-        "ESFJ",
-        "ESFP",
+        "INTJ","INTP","INFJ","INFP","ISTJ","ISTP","ISFJ","ISFP",
+        "ENTJ","ENTP","ENFJ","ENFP","ESTJ","ESTP","ESFJ","ESFP",
       ],
     },
 
     religion: {
       type: String,
       enum: [
-        "agnostic",
-        "atheist",
-        "buddhist",
-        "catholic",
-        "christian",
-        "hindu",
-        "jewish",
-        "muslim",
-        "spiritual",
-        "prefer not to say",
+        "agnostic","atheist","buddhist","catholic","christian","hindu",
+        "jewish","muslim","spiritual","prefer not to say",
       ],
     },
 
@@ -129,12 +138,7 @@ const userSchema = new Schema(
       },
     ],
 
-    interests: [
-      {
-        type: String,
-        maxlength: 100,
-      },
-    ],
+    interests: [{ type: String, maxlength: 100 }],
 
     avatar: {
       public_id: { type: String, default: "" },
@@ -142,51 +146,39 @@ const userSchema = new Schema(
     },
 
     profilePhotos: [
-      {
-        public_id: { type: String, required: true },
-        url: { type: String, required: true },
-      },
+      { public_id: { type: String, required: true }, url: { type: String, required: true } },
     ],
 
-    location: { type: String },
-
-    addresses: {
-      type: Array,
-      default: [],
+    // Simple lat/lng strings
+    location: {
+      lat: { type: String, default: null },
+      lng: { type: String, default: null },
     },
 
-    notifications: {
-      type: Boolean,
-      default: true,
-    },
+    addresses: { type: Array, default: [] },
 
-    language: {
-      type: String,
-      default: "en",
-    },
+    notifications: { type: Boolean, default: true },
 
-    country: {
-      type: String,
-      default: "Kuwait",
-    },
+    language: { type: String, default: "en" },
+
+    country: { type: String, default: "Kuwait" },
 
     referralCode: {
       type: String,
-      default: () =>
-        Math.random().toString(36).substr(2, 9).toUpperCase(),
+      default: () => Math.random().toString(36).substr(2, 9).toUpperCase(),
     },
 
+    // ✅ ONLY roles
     role: {
       type: String,
-      enum: ["patient", "admin", "doctor"], // "user" = patient, "storeman" = doctor
+      enum: ["patient", "doctor", "admin"],
       default: "patient",
     },
 
-    // 👇 doctor approval status (used in login check)
     approvalStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
-      default: "approved", // patients default approved, doctors set to "pending" in controller
+      default: "approved",
     },
 
     verificationInfo: {
@@ -208,32 +200,24 @@ const userSchema = new Schema(
           max: [5, "Rating cannot exceed 5"],
           default: 0,
         },
-        product: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Product",
-        },
-        text: {
-          type: String,
-        },
+        product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+        text: { type: String },
       },
     ],
   },
   { timestamps: true }
 );
 
-// 🔐 hash password before save
 userSchema.pre("save", async function (next) {
-  if (this.isModified("password")) {
+  if (this.isModified("password") && this.password) {
     const saltRounds = Number(process.env.bcrypt_salt_round) || 10;
     this.password = await bcrypt.hash(this.password, saltRounds);
   }
 
-  // ensure only one default address
-  if (this.isModified("addresses")) {
+  if (this.isModified("addresses") && Array.isArray(this.addresses)) {
     let defaultFound = false;
-
     this.addresses = this.addresses.map((addr) => {
-      if (addr.isDefault) {
+      if (addr?.isDefault) {
         if (!defaultFound) {
           defaultFound = true;
           return addr;
@@ -244,25 +228,25 @@ userSchema.pre("save", async function (next) {
     });
   }
 
+  if (this.isModified("weeklySchedule") && Array.isArray(this.weeklySchedule)) {
+    for (const d of this.weeklySchedule) {
+      if (!d?.isActive) continue;
+      for (const s of d.slots || []) {
+        if (s.start >= s.end) {
+          return next(new Error(`Invalid slot on ${d.day}: start must be < end`));
+        }
+      }
+    }
+  }
+
   next();
 });
 
-// 🔎 find by email (with password)
 userSchema.statics.isUserExistsByEmail = async function (email) {
   return await this.findOne({ email }).select("+password");
 };
 
-// ✅ OTP verified helper (if ever needed)
-userSchema.statics.isOTPVerified = async function (id) {
-  const user = await this.findById(id).select("+verificationInfo");
-  return user?.verificationInfo.verified;
-};
-
-// 🔐 compare passwords
-userSchema.statics.isPasswordMatched = async function (
-  plainTextPassword,
-  hashPassword
-) {
+userSchema.statics.isPasswordMatched = async function (plainTextPassword, hashPassword) {
   return await bcrypt.compare(plainTextPassword, hashPassword);
 };
 

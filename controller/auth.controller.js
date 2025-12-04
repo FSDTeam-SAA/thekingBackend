@@ -5,50 +5,33 @@ import { generateOTP } from "../utils/commonMethod.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import { User } from "./../model/user.model.js";
+import { User } from "../model/user.model.js";
 
-/**
- * Helpers to map between frontend roles and DB roles
- * DB enum: "user", "admin", "storeman"
- * UI / frontend: "patient", "doctor", "admin"
- */
-
-const mapClientRoleToDbRole = (roleFromClient) => {
-  // default to "patient" if nothing provided
-  const role = roleFromClient || "patient";
-
-  if (role === "patient" || role === "user") return "user";
-  if (role === "doctor" || role === "storeman") return "storeman";
-  if (role === "admin") return "admin";
-
-  throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
+const normalizeRole = (role) => {
+  const r = String(role || "patient").toLowerCase().trim();
+  if (!["patient", "doctor", "admin"].includes(r)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
+  }
+  return r;
 };
 
-const mapDbRoleToClientRole = (dbRole) => {
-  if (dbRole === "user") return "patient";
-  if (dbRole === "storeman") return "doctor";
-  return dbRole; // "admin" or anything else
-};
-
-/**
- * REGISTER
- *  - no email verification / OTP
- */
 export const register = catchAsync(async (req, res) => {
   const {
     phone,
-    name,
+    fullName,
     email,
     password,
     confirmPassword,
+    experienceYears,
     role,
     specialty,
     medicalLicenseNumber,
   } = req.body;
 
-  if (!email || !password || !name) {
+  if (!email || !password || !fullName) {
     throw new AppError(httpStatus.BAD_REQUEST, "Please fill in all fields");
   }
+
   if (password !== confirmPassword) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
@@ -56,7 +39,16 @@ export const register = catchAsync(async (req, res) => {
     );
   }
 
-  // 🔍 check duplicates by email / phone / medicalLicenseNumber
+  const roleNormalized = normalizeRole(role);
+
+  if (roleNormalized === "doctor" && !medicalLicenseNumber) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Medical license number is required for doctors"
+    );
+  }
+
+  // duplicates check
   const existingUser = await User.findOne({
     $or: [
       { email },
@@ -67,42 +59,27 @@ export const register = catchAsync(async (req, res) => {
 
   if (existingUser) {
     let message = "User already exists";
-
-    if (existingUser.email === email) {
-      message = "Email already exists";
-    } else if (phone && existingUser.phone === phone) {
-      message = "Phone already exists";
-    } else if (
-      medicalLicenseNumber &&
-      existingUser.medicalLicenseNumber === medicalLicenseNumber
-    ) {
+    if (existingUser.email === email) message = "Email already exists";
+    else if (phone && existingUser.phone === phone) message = "Phone already exists";
+    else if (medicalLicenseNumber && existingUser.medicalLicenseNumber === medicalLicenseNumber)
       message = "Medical license number already exists";
-    }
-
     throw new AppError(httpStatus.BAD_REQUEST, message);
   }
 
-  const dbRole = mapClientRoleToDbRole(role);
-  const clientRole = mapDbRoleToClientRole(dbRole);
+  const exp = Number(experienceYears);
+  const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
-  if (clientRole === "doctor" && !medicalLicenseNumber) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "Medical license number is required for doctors"
-    );
-  }
-
-  const approvalStatus = clientRole === "doctor" ? "pending" : "approved";
+  const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
 
   await User.create({
     phone,
-    name,
+    fullName,
     email,
     password,
-    role: dbRole,
+    experienceYears: expSafe,
+    role: roleNormalized,
     specialty,
-    medicalLicenseNumber: clientRole === "doctor" ? medicalLicenseNumber : undefined,
-    isVerified: true,
+    medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
     approvalStatus,
     verificationInfo: { token: "" },
   });
@@ -115,41 +92,32 @@ export const register = catchAsync(async (req, res) => {
   });
 });
 
-
-/**
- * LOGIN
- *  - no email verification check / resend OTP
- */
 export const login = catchAsync(async (req, res) => {
   const { email, password } = req.body;
 
   const user = await User.isUserExistsByEmail(email);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
-  if (
-    user?.password &&
-    !(await User.isPasswordMatched(password, user.password))
-  ) {
+  if (user?.password && !(await User.isPasswordMatched(password, user.password))) {
     throw new AppError(httpStatus.FORBIDDEN, "Password is not correct");
   }
 
-  const clientRole = mapDbRoleToClientRole(user.role);
-
-  // ✅ doctor approval check (for storeman)
-  if (clientRole === "doctor" && user.approvalStatus !== "approved") {
+  // doctor approval check
+  if (user.role === "doctor" && user.approvalStatus !== "approved") {
     throw new AppError(
       httpStatus.FORBIDDEN,
       "Doctor account pending admin approval"
     );
   }
 
-  // issue tokens (keep DB role in token so backend permissions still work)
   const jwtPayload = { _id: user._id, email: user.email, role: user.role };
+
   const accessToken = createToken(
     jwtPayload,
     process.env.JWT_ACCESS_SECRET,
     process.env.JWT_ACCESS_EXPIRES_IN
   );
+
   const refreshToken = createToken(
     jwtPayload,
     process.env.JWT_REFRESH_SECRET,
@@ -173,7 +141,7 @@ export const login = catchAsync(async (req, res) => {
     data: {
       accessToken,
       refreshToken,
-      role: clientRole,
+      role: user.role,
       _id: user._id,
       approvalStatus: user.approvalStatus,
       user,
@@ -181,24 +149,14 @@ export const login = catchAsync(async (req, res) => {
   });
 });
 
-/**
- * FORGOT PASSWORD – still uses OTP by email
- */
 export const forgetPassword = catchAsync(async (req, res) => {
   const { email } = req.body;
 
   const user = await User.isUserExistsByEmail(email);
-  if (!user) {
-    throw new AppError(httpStatus.NOT_FOUND, "User not found");
-  }
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
   const otp = generateOTP();
-  const otpPayload = { otp };
-  const otpToken = createToken(
-    otpPayload,
-    process.env.OTP_SECRET,
-    process.env.OTP_EXPIRE
-  );
+  const otpToken = createToken({ otp }, process.env.OTP_SECRET, process.env.OTP_EXPIRE);
 
   user.password_reset_token = otpToken;
   await user.save();
@@ -217,9 +175,7 @@ export const resetPassword = catchAsync(async (req, res) => {
   const { email, otp, password } = req.body;
 
   const user = await User.isUserExistsByEmail(email);
-  if (!user) {
-    throw new AppError(httpStatus.NOT_FOUND, "User not found");
-  }
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
   if (!user.password_reset_token) {
     throw new AppError(
@@ -231,7 +187,7 @@ export const resetPassword = catchAsync(async (req, res) => {
   let decoded;
   try {
     decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
-  } catch (err) {
+  } catch {
     throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
   }
 
@@ -247,19 +203,6 @@ export const resetPassword = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Password reset successfully",
-    data: null,
-  });
-});
-
-/**
- * verifyEmail endpoint is now effectively unused, but kept for compatibility.
- * You could delete this route from your router if you don't need it at all.
- */
-export const verifyEmail = catchAsync(async (_req, res) => {
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Email verification not required",
     data: null,
   });
 });
@@ -281,12 +224,10 @@ export const changePassword = catchAsync(async (req, res) => {
   }
 
   const user = await User.findById(req.user?._id).select("+password");
-
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
   const matched = await User.isPasswordMatched(oldPassword, user.password);
-  if (!matched)
-    throw new AppError(httpStatus.UNAUTHORIZED, "Current password wrong");
+  if (!matched) throw new AppError(httpStatus.UNAUTHORIZED, "Current password wrong");
 
   user.password = newPassword;
   await user.save();
@@ -302,20 +243,16 @@ export const changePassword = catchAsync(async (req, res) => {
 export const refreshToken = catchAsync(async (req, res) => {
   const { refreshToken } = req.body;
 
-  if (!refreshToken) {
-    throw new AppError(400, "Refresh token is required");
-  }
+  if (!refreshToken) throw new AppError(400, "Refresh token is required");
 
   const decoded = verifyToken(refreshToken, process.env.JWT_REFRESH_SECRET);
   const user = await User.findById(decoded._id);
+
   if (!user || user.refreshToken !== refreshToken) {
     throw new AppError(401, "Invalid refresh token");
   }
-  const jwtPayload = {
-    _id: user._id,
-    email: user.email,
-    role: user.role,
-  };
+
+  const jwtPayload = { _id: user._id, email: user.email, role: user.role };
 
   const accessToken = createToken(
     jwtPayload,
@@ -328,6 +265,7 @@ export const refreshToken = catchAsync(async (req, res) => {
     process.env.JWT_REFRESH_SECRET,
     process.env.JWT_REFRESH_EXPIRES_IN
   );
+
   user.refreshToken = refreshToken1;
   await user.save();
 
@@ -335,13 +273,13 @@ export const refreshToken = catchAsync(async (req, res) => {
     statusCode: 200,
     success: true,
     message: "Token refreshed successfully",
-    data: { accessToken: accessToken, refreshToken: refreshToken1 },
+    data: { accessToken, refreshToken: refreshToken1 },
   });
 });
 
 export const logout = catchAsync(async (req, res) => {
-  const user = req.user?._id;
-  await User.findByIdAndUpdate(user, { refreshToken: "" }, { new: true });
+  await User.findByIdAndUpdate(req.user?._id, { refreshToken: "" }, { new: true });
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
