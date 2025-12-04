@@ -107,6 +107,54 @@ export const getProfile = catchAsync(async (req, res) => {
   });
 });
 
+
+
+export const getUsersByRole = catchAsync(async (req, res) => {
+  const { role } = req.params; // "patient" | "doctor" | "admin"
+
+  const allowedRoles = ["patient", "doctor", "admin"];
+  if (!allowedRoles.includes(role)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
+  }
+
+  const users = await User.find({ role }).select(
+    "-password -refreshToken -verificationInfo -password_reset_token"
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Users fetched for role: ${role}`,
+    data: users,
+  });
+});
+
+export const getUserDetails = catchAsync(async (req, res) => {
+  const { id } = req.params; // Mongo _id
+
+  const user = await User.findById(id).select(
+    "-password -refreshToken -verificationInfo -password_reset_token"
+  );
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  // if you ONLY want patient/doctor details (no admins), uncomment:
+  // if (!["patient", "doctor"].includes(user.role)) {
+  //   throw new AppError(httpStatus.FORBIDDEN, "Not allowed to view this user");
+  // }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "User details fetched",
+    data: user,
+  });
+});
+
+
+
 export const updateProfile = catchAsync(async (req, res) => {
   const {
     fullName,
