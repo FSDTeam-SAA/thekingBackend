@@ -1,5 +1,5 @@
 import express from "express";
-import { createAppointment, getAvailableAppointments, getMyAppointments } from "../controller/appointment.controller.js";
+import { createAppointment, getAvailableAppointments, getEarningsOverview, getMyAppointments, updateAppointmentStatus } from "../controller/appointment.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
 
@@ -32,4 +32,13 @@ router.post("/available", getAvailableAppointments);
  */
 router.get("/", protect, getMyAppointments);
 
+/**
+ * Update appointment status (doctor/admin)
+ * PATCH /appointment/:id/status
+ * body: { status: "pending" | "confirmed" | "completed" | "cancelled" }
+ */
+router.patch("/:id/status", protect, updateAppointmentStatus);
+
+router.get("/earnings/overview", protect, getEarningsOverview);
+ 
 export default router;

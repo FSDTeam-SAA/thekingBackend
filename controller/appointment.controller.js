@@ -249,7 +249,7 @@ export const getMyAppointments = catchAsync(async (req, res) => {
 
   const appointments = await Appointment.find(filter)
     .sort({ appointmentDate: 1, time: 1 })
-    .populate("doctor", "fullName role specialty avatar")
+    .populate("doctor", "fullName role specialty avatar fees")
     .populate("patient", "fullName role avatar");
 
   sendResponse(res, {
@@ -259,3 +259,319 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     data: appointments,
   });
 });
+
+
+export const updateAppointmentStatus = catchAsync(async (req, res) => {
+  const { id } = req.params;                 // appointment id
+  const { status, patient, price } = req.body; // status + extras
+  const userId = req.user._id;
+  const role = req.user.role;                // "patient" | "doctor" | "admin"
+
+  // ✅ now we use "accepted" instead of "confirmed"
+  const allowedStatuses = ["pending", "accepted", "completed", "cancelled"];
+
+  if (!status || !allowedStatuses.includes(status)) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Status must be one of: pending, accepted, completed, cancelled"
+    );
+  }
+
+  // 1) find appointment
+  const appointment = await Appointment.findById(id)
+    .populate("doctor", "fullName fees role")
+    .populate("patient", "fullName role");
+
+  if (!appointment) {
+    throw new AppError(httpStatus.NOT_FOUND, "Appointment not found");
+  }
+
+  // 2) only this doctor OR admin can update
+  const isDoctorOwner =
+    role === "doctor" &&
+    String(appointment.doctor?._id) === String(userId);
+
+  const isAdmin = role === "admin";
+
+  if (!isDoctorOwner && !isAdmin) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Only the doctor or admin can update appointment status"
+    );
+  }
+
+  // 3) status transitions
+  // pending -> accepted / cancelled
+  // accepted -> completed / cancelled
+  const current = appointment.status;
+  const transitions = {
+    pending: ["accepted", "cancelled"],
+    accepted: ["completed", "cancelled"],
+    completed: [],
+    cancelled: [],
+  };
+
+  if (!transitions[current].includes(status) && current !== status) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `Invalid status transition from ${current} to ${status}`
+    );
+  }
+
+  // 4) Extra validation ONLY when marking as completed
+  if (status === "completed") {
+    // patient full name required
+    if (!patient || !String(patient).trim()) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "patient (fullName) is required when completing appointment"
+      );
+    }
+
+    const dbPatientName = appointment.patient?.fullName || "";
+    if (String(patient).trim() !== dbPatientName) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Patient name does not match appointment patient"
+      );
+    }
+
+    // price required
+    if (price === undefined || price === null || String(price).trim() === "") {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "price is required when completing appointment"
+      );
+    }
+
+    const paidAmount = Number(price);
+    if (!Number.isFinite(paidAmount) || paidAmount < 0) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "price must be a valid positive number"
+      );
+    }
+
+    const doctorFee = Number(appointment.doctor?.fees?.amount || 0);
+    if (paidAmount < doctorFee) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Paid amount is less than the doctor's fees"
+      );
+    }
+
+    // (optional) store paidAmount on appointment
+    // appointment.paidAmount = paidAmount;
+  }
+
+  // 5) save new status
+  appointment.status = status;
+  await appointment.save();
+
+  // 6) response (sessionInfo only useful for UI, mainly on completed)
+  let sessionInfo = null;
+
+  if (status === "completed") {
+    const patientName = appointment.patient?.fullName || "";
+    const { amount = 0, currency = "USD" } = appointment.doctor?.fees || {};
+
+    sessionInfo = {
+      sessionHolderName: patientName,
+      payableAmount: amount,
+      currency,
+    };
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Appointment status updated",
+    data: {
+      appointment,
+      sessionInfo,
+    },
+  });
+});
+
+
+
+
+// helper: date range for daily / weekly / monthly
+const getDateRangeForView = (view) => {
+  const now = new Date();
+  now.setMilliseconds(0);
+  const end = now;
+
+  let start;
+
+  if (view === "daily") {
+    start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+  } else if (view === "weekly") {
+    start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - 6); // last 7 days including today
+  } else if (view === "monthly") {
+    start = new Date(now.getFullYear(), now.getMonth(), 1); // first day of month
+  }
+
+  return { start, end };
+};
+
+/**
+ * GET /appointment/earnings/overview?view=daily|weekly|monthly
+ *
+ * - doctor: earnings from *own* completed appointments
+ * - admin : earnings from *all* completed appointments + per-doctor summary
+ */
+export const getEarningsOverview = catchAsync(async (req, res) => {
+  const role = req.user.role; // "patient" | "doctor" | "admin"
+  const userId = req.user._id;
+  const view = (req.query.view || "monthly").toLowerCase();
+
+  if (!["daily", "weekly", "monthly"].includes(view)) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "view must be one of: daily, weekly, monthly"
+    );
+  }
+
+  const { start, end } = getDateRangeForView(view);
+
+  const baseMatch = {
+    status: "completed", // ✅ only completed appointments count
+  };
+
+  if (start && end) {
+    baseMatch.appointmentDate = { $gte: start, $lte: end };
+  }
+
+  // ---------- DOCTOR ----------
+  if (role === "doctor") {
+    const match = { ...baseMatch, doctor: userId };
+
+    const appointments = await Appointment.find(match)
+      .populate("doctor", "fees")
+      .lean();
+
+    let totalEarnings = 0;
+    let physicalEarnings = 0;
+    let videoEarnings = 0;
+    let totalAppointments = appointments.length;
+    let physicalCount = 0;
+    let videoCount = 0;
+
+    // for weekly bar chart: Sun..Sat
+    const weeklyByWeekday = [0, 0, 0, 0, 0, 0, 0];
+
+    for (const appt of appointments) {
+      const fee = Number(appt.doctor?.fees?.amount || 0);
+      totalEarnings += fee;
+
+      if (appt.appointmentType === "physical") {
+        physicalEarnings += fee;
+        physicalCount++;
+      } else if (appt.appointmentType === "video") {
+        videoEarnings += fee;
+        videoCount++;
+      }
+
+      if (view === "weekly" && appt.appointmentDate) {
+        const d = new Date(appt.appointmentDate);
+        const idx = d.getDay(); // 0=Sun..6=Sat
+        weeklyByWeekday[idx] += fee;
+      }
+    }
+
+    return sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "Doctor earnings overview fetched",
+      data: {
+        scope: "doctor",
+        view,
+        totalEarnings,
+        totalAppointments,
+        physical: {
+          earnings: physicalEarnings,
+          count: physicalCount,
+        },
+        video: {
+          earnings: videoEarnings,
+          count: videoCount,
+        },
+        weeklyByWeekday:
+          view === "weekly"
+            ? {
+                labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                values: weeklyByWeekday,
+              }
+            : null,
+      },
+    });
+  }
+
+  // ---------- ADMIN ----------
+  if (role === "admin") {
+    const match = { ...baseMatch };
+
+    const appointments = await Appointment.find(match)
+      .populate("doctor", "fullName specialty fees")
+      .lean();
+
+    let totalEarnings = 0;
+    let totalAppointments = appointments.length;
+
+    // doctorId -> stats
+    const perDoctor = new Map();
+
+    for (const appt of appointments) {
+      const doc = appt.doctor;
+      if (!doc) continue;
+
+      const fee = Number(doc.fees?.amount || 0);
+      totalEarnings += fee;
+
+      const docId = String(doc._id);
+      if (!perDoctor.has(docId)) {
+        perDoctor.set(docId, {
+          doctorId: docId,
+          doctorName: doc.fullName || "",
+          specialty: doc.specialty || "",
+          appointments: 0,
+          earnings: 0,
+        });
+      }
+
+      const entry = perDoctor.get(docId);
+      entry.appointments += 1;
+      entry.earnings += fee;
+    }
+
+    const doctors = Array.from(perDoctor.values());
+    const avgPerDoctor =
+      doctors.length > 0 ? totalEarnings / doctors.length : 0;
+
+    return sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "Admin earnings overview fetched",
+      data: {
+        scope: "admin",
+        view,
+        totalEarnings,
+        totalAppointments,
+        avgPerDoctor,
+        doctors, // for the Doctors Management table
+      },
+    });
+  }
+
+  // patients don't have earnings
+  throw new AppError(
+    httpStatus.FORBIDDEN,
+    "Only doctor or admin can view earnings overview"
+  );
+});
+
+
