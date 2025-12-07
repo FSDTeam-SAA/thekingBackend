@@ -4,6 +4,8 @@ import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
+import { DoctorReview } from "../model/doctorReview.model.js";
+
 
 /**
  * Helpers
@@ -117,41 +119,122 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
   }
 
-  const users = await User.find({ role }).select(
-    "-password -refreshToken -verificationInfo -password_reset_token"
+  // base users list
+  const users = await User.find({ role })
+    .select("-password -refreshToken -verificationInfo -password_reset_token")
+    .lean();
+
+  // if role is not doctor we just return the list as-is
+  if (role !== "doctor") {
+    return sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: `Users fetched for role: ${role}`,
+      data: users,
+    });
+  }
+
+  // ---- add ratingSummary for doctors ----
+  const doctorIds = users.map((u) => u._id);
+
+  const stats = await DoctorReview.aggregate([
+    { $match: { doctor: { $in: doctorIds } } },
+    {
+      $group: {
+        _id: "$doctor",
+        avgRating: { $avg: "$rating" },
+        totalReviews: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const statsMap = new Map(
+    stats.map((s) => [
+      String(s._id),
+      {
+        avgRating: Number(s.avgRating.toFixed(1)),
+        totalReviews: s.totalReviews,
+      },
+    ])
   );
+
+  const doctorsWithRating = users.map((doc) => {
+    const s =
+      statsMap.get(String(doc._id)) || /** default if no reviews */ {
+        avgRating: 0,
+        totalReviews: 0,
+      };
+
+    return {
+      ...doc,
+      ratingSummary: s,
+    };
+  });
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: `Users fetched for role: ${role}`,
-    data: users,
+    data: doctorsWithRating,
   });
 });
 
-export const getUserDetails = catchAsync(async (req, res) => {
-  const { id } = req.params; // Mongo _id
 
-  const user = await User.findById(id).select(
-    "-password -refreshToken -verificationInfo -password_reset_token"
-  );
+
+export const getUserDetails = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const user = await User.findById(id)
+    .select("-password -refreshToken -verificationInfo -password_reset_token")
+    .lean();
 
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
-  // if you ONLY want patient/doctor details (no admins), uncomment:
-  // if (!["patient", "doctor"].includes(user.role)) {
-  //   throw new AppError(httpStatus.FORBIDDEN, "Not allowed to view this user");
-  // }
+  let ratingSummary = { avgRating: 0, totalReviews: 0 };
+  let recentReviews = [];
+
+  if (user.role === "doctor") {
+    // 🔥 use user._id instead of new mongoose.Types.ObjectId(id)
+    const [summary] = await DoctorReview.aggregate([
+      { $match: { doctor: user._id } },
+      {
+        $group: {
+          _id: "$doctor",
+          avgRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+        },
+      },
+    ]);
+
+    if (summary) {
+      ratingSummary = {
+        avgRating: Number(summary.avgRating.toFixed(1)),
+        totalReviews: summary.totalReviews,
+      };
+    }
+
+    recentReviews = await DoctorReview.find({ doctor: user._id })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate("patient", "fullName avatar")
+      .lean();
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "User details fetched",
-    data: user,
+    data: {
+      ...user,
+      ratingSummary,
+      recentReviews,
+    },
   });
 });
+
+
 
 
 
