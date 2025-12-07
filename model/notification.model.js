@@ -1,34 +1,30 @@
-import mongoose from "mongoose";
+// model/notification.model.js
+import mongoose, { Schema } from "mongoose";
 
-const notificationSchema = new mongoose.Schema(
+const notificationSchema = new Schema(
   {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    chatId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Chat",
-      required: true,
-    },
-    messageId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Message",
-      required: true,
-    },
-    content: {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true }, // receiver
+    fromUserId: { type: Schema.Types.ObjectId, ref: "User" },            // sender (optional)
+
+    type: {
       type: String,
+      enum: [
+        "doctor_signup",
+        "doctor_approved",
+        "appointment_created",
+        "appointment_status_change",
+      ],
       required: true,
     },
-    isRead: {
-      type: Boolean,
-      default: false,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
+
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+
+    appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment" },
+
+    meta: { type: Schema.Types.Mixed },
+
+    isRead: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

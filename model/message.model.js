@@ -1,3 +1,4 @@
+// model/message.model.js
 import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
@@ -23,15 +24,9 @@ const messageSchema = new mongoose.Schema(
     },
     fileUrl: [
       {
-        name: {
-          type: String,
-        },
-        content: {
-          type: String,
-        },
-        url: {
-          type: String,
-        },
+        name: { type: String },
+        content: { type: String },
+        url: { type: String },
       },
     ],
     createdAt: {
@@ -42,4 +37,5 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ❗ NAMED EXPORT (not default)
 export const Message = mongoose.model("Message", messageSchema);

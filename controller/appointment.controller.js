@@ -1,3 +1,4 @@
+// controller/appointment.controller.js
 import httpStatus from "http-status";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
@@ -5,6 +6,7 @@ import sendResponse from "../utils/sendResponse.js";
 import { uploadOnCloudinary } from "../utils/commonMethod.js";
 import { User } from "../model/user.model.js";
 import { Appointment } from "../model/appointment.model.js";
+import { createNotification } from "../utils/notify.js";   // 🔔 <– add this
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:MM
 
@@ -22,7 +24,6 @@ const parseDate = (d) => {
 };
 
 export const createAppointment = catchAsync(async (req, res) => {
-  // const { doctorId } = req.params;
   const {
     doctorId,
     appointmentType, // "physical" | "video"
@@ -101,7 +102,7 @@ export const createAppointment = catchAsync(async (req, res) => {
     doctor: doctorId,
     appointmentDate,
     time,
-    status: { $in: ["pending", "approved"] },
+    status: { $in: ["pending", "approved"] }, // NOTE: adjust if you don't use "approved"
   });
 
   if (conflict) {
@@ -123,6 +124,23 @@ export const createAppointment = catchAsync(async (req, res) => {
     paymentScreenshot,
   });
 
+  // 🔔 3) NOTIFICATION – patient booked appointment → notify doctor
+  await createNotification({
+    userId: doctor._id,             // doctor receives
+    fromUserId: patient._id,        // patient triggered
+    type: "appointment_created",
+    title: "New appointment request",
+    content: `${patient.fullName} requested an appointment on ${date} at ${time}.`,
+    appointmentId: appointment._id,
+    meta: {
+      appointmentType: type,
+      date,
+      time,
+      patientId,
+      patientName: patient.fullName,
+    },
+  });
+
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
@@ -133,7 +151,7 @@ export const createAppointment = catchAsync(async (req, res) => {
 
 /// get available time appointments
 export const getAvailableAppointments = catchAsync(async (req, res) => {
-  const { doctorId, date } = req.body; // 👈 frontend sends these as query params
+  const { doctorId, date } = req.body;
 
   if (!doctorId || !date) {
     throw new AppError(
@@ -171,7 +189,6 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
     (d) => d.day === dayName && d.isActive
   );
 
-  // if no schedule for that day → no available slots
   if (!daySchedule || !daySchedule.slots?.length) {
     return sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -194,21 +211,19 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
   const existingAppointments = await Appointment.find({
     doctor: doctorId,
     appointmentDate: { $gte: startOfDay, $lt: endOfDay },
-    status: { $in: ["pending", "approved"] }, // treat these as "booked"
+    status: { $in: ["pending", "approved"] }, // adjust if needed
   }).select("time");
 
   const bookedTimesSet = new Set(existingAppointments.map((a) => a.time));
 
-  // 5) mark which slots are booked / free
   const allSlots = (daySchedule.slots || []).map((slot) => ({
-    start: slot.start,              // "10:00"
-    end: slot.end,                  // "10:30"
+    start: slot.start,
+    end: slot.end,
     isBooked: bookedTimesSet.has(slot.start),
   }));
 
   const availableSlots = allSlots.filter((s) => !s.isBooked);
 
-  // 6) respond
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -216,12 +231,10 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
     data: {
       date,
       day: dayName,
-      slots: availableSlots,        // [{start, end, isBooked:false}, ...]
+      slots: availableSlots,
     },
   });
 });
-
-
 
 // GET all appointments for current user (patient/doctor/admin)
 export const getMyAppointments = catchAsync(async (req, res) => {
@@ -236,7 +249,6 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   } else if (role === "doctor") {
     filter.doctor = userId;
   } else if (role === "admin") {
-    // optional filters for admin
     if (doctorId) filter.doctor = doctorId;
     if (patientId) filter.patient = patientId;
   } else {
@@ -244,7 +256,7 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   }
 
   if (status) {
-    filter.status = status; // pending / approved / rejected / cancelled / completed
+    filter.status = status;
   }
 
   const appointments = await Appointment.find(filter)
@@ -260,10 +272,9 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   });
 });
 
-
 export const updateAppointmentStatus = catchAsync(async (req, res) => {
   const { id } = req.params;                 // appointment id
-  const { status, patient, price } = req.body; // status + extras
+  const { status, patient, price } = req.body;
   const userId = req.user._id;
   const role = req.user.role;                // "patient" | "doctor" | "admin"
 
@@ -301,8 +312,6 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   }
 
   // 3) status transitions
-  // pending -> accepted / cancelled
-  // accepted -> completed / cancelled
   const current = appointment.status;
   const transitions = {
     pending: ["accepted", "cancelled"],
@@ -320,7 +329,6 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
 
   // 4) Extra validation ONLY when marking as completed
   if (status === "completed") {
-    // patient full name required
     if (!patient || !String(patient).trim()) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -336,7 +344,6 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
       );
     }
 
-    // price required
     if (price === undefined || price === null || String(price).trim() === "") {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -360,19 +367,48 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
       );
     }
 
-    // (optional) store paidAmount on appointment
-    // appointment.paidAmount = paidAmount;
+    // appointment.paidAmount = paidAmount; // uncomment if you store it
   }
 
   // 5) save new status
   appointment.status = status;
   await appointment.save();
 
-  // 6) response (sessionInfo only useful for UI, mainly on completed)
+  // 6) NOTIFICATION to patient about status change
+  const patientId = appointment.patient._id;
+  const doctorId = appointment.doctor._id;
+  const doctorName = appointment.doctor.fullName;
+  const patientName = appointment.patient.fullName;
+
+  let content = `Your appointment with ${doctorName} is now ${status}.`;
+
+  if (status === "accepted") {
+    content = `${doctorName} has accepted your appointment request.`;
+  } else if (status === "cancelled") {
+    content = `Your appointment with ${doctorName} has been cancelled.`;
+  } else if (status === "completed") {
+    content = `Your appointment with ${doctorName} has been completed.`;
+  }
+
+  await createNotification({
+    userId: patientId,
+    fromUserId: doctorId,
+    type: "appointment_status_change",
+    title: "Appointment status updated",
+    content,
+    appointmentId: appointment._id,
+    meta: {
+      status,
+      price,
+      doctorId,
+      doctorName,
+      patientName,
+    },
+  });
+
   let sessionInfo = null;
 
   if (status === "completed") {
-    const patientName = appointment.patient?.fullName || "";
     const { amount = 0, currency = "USD" } = appointment.doctor?.fees || {};
 
     sessionInfo = {
@@ -393,9 +429,6 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   });
 });
 
-
-
-
 // helper: date range for daily / weekly / monthly
 const getDateRangeForView = (view) => {
   const now = new Date();
@@ -410,9 +443,9 @@ const getDateRangeForView = (view) => {
   } else if (view === "weekly") {
     start = new Date(now);
     start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - 6); // last 7 days including today
+    start.setDate(start.getDate() - 6);
   } else if (view === "monthly") {
-    start = new Date(now.getFullYear(), now.getMonth(), 1); // first day of month
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
   }
 
   return { start, end };
@@ -420,12 +453,9 @@ const getDateRangeForView = (view) => {
 
 /**
  * GET /appointment/earnings/overview?view=daily|weekly|monthly
- *
- * - doctor: earnings from *own* completed appointments
- * - admin : earnings from *all* completed appointments + per-doctor summary
  */
 export const getEarningsOverview = catchAsync(async (req, res) => {
-  const role = req.user.role; // "patient" | "doctor" | "admin"
+  const role = req.user.role;
   const userId = req.user._id;
   const view = (req.query.view || "monthly").toLowerCase();
 
@@ -439,14 +469,13 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
   const { start, end } = getDateRangeForView(view);
 
   const baseMatch = {
-    status: "completed", // ✅ only completed appointments count
+    status: "completed",
   };
 
   if (start && end) {
     baseMatch.appointmentDate = { $gte: start, $lte: end };
   }
 
-  // ---------- DOCTOR ----------
   if (role === "doctor") {
     const match = { ...baseMatch, doctor: userId };
 
@@ -461,7 +490,6 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
     let physicalCount = 0;
     let videoCount = 0;
 
-    // for weekly bar chart: Sun..Sat
     const weeklyByWeekday = [0, 0, 0, 0, 0, 0, 0];
 
     for (const appt of appointments) {
@@ -478,7 +506,7 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
 
       if (view === "weekly" && appt.appointmentDate) {
         const d = new Date(appt.appointmentDate);
-        const idx = d.getDay(); // 0=Sun..6=Sat
+        const idx = d.getDay();
         weeklyByWeekday[idx] += fee;
       }
     }
@@ -511,7 +539,6 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
     });
   }
 
-  // ---------- ADMIN ----------
   if (role === "admin") {
     const match = { ...baseMatch };
 
@@ -522,7 +549,6 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
     let totalEarnings = 0;
     let totalAppointments = appointments.length;
 
-    // doctorId -> stats
     const perDoctor = new Map();
 
     for (const appt of appointments) {
@@ -562,16 +588,13 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
         totalEarnings,
         totalAppointments,
         avgPerDoctor,
-        doctors, // for the Doctors Management table
+        doctors,
       },
     });
   }
 
-  // patients don't have earnings
   throw new AppError(
     httpStatus.FORBIDDEN,
     "Only doctor or admin can view earnings overview"
   );
 });
-
-

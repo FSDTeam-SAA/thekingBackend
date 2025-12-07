@@ -7,6 +7,9 @@ import appointmentRoutes from "../route/appointment.route.js";
 import postRoute from "../route/post.route.js";
 import reelRoute from "../route/reel.route.js";
 import doctorReviewRoute from "../route/doctorReview.route.js";
+import notificationRoute from "../route/notification.route.js";
+// mainroute/index.js
+import chatRoute from "../route/chat.route.js";
 
 const router = express.Router();
 
@@ -18,5 +21,9 @@ router.use("/appointment", appointmentRoutes);
 router.use("/posts", postRoute);
 router.use("/reels", reelRoute);
 router.use("/doctor-reviews", doctorReviewRoute);
+router.use("/notification", notificationRoute);
+router.use("/chat", chatRoute);
+
+
 
 export default router;

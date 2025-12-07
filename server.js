@@ -18,7 +18,7 @@ const server = createServer(app);
 export const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   },
 });
 
@@ -39,7 +39,6 @@ app.use("/public", express.static("public"));
 // Mount the main router
 app.use("/api/v1", router);
 
-
 // Basic route for testing
 app.get("/", (req, res) => {
   res.send("Server is running...!!");
@@ -48,9 +47,17 @@ app.get("/", (req, res) => {
 app.use(globalErrorHandler);
 app.use(notFound);
 
+/**
+ * SOCKET.IO
+ *  - joinChatRoom(userId): join personal room for chat/alerts
+ *  - joinAlerts(): global alerts room
+ *  - chat:typing / chat:stopTyping
+ *  - call:* events: signaling for WebRTC video calls
+ */
 io.on("connection", (socket) => {
   console.log("A client connected:", socket.id);
 
+  // each user joins a private room by their userId
   socket.on("joinChatRoom", (userId) => {
     if (userId) {
       socket.join(`chat_${userId}`);
@@ -58,9 +65,55 @@ io.on("connection", (socket) => {
     }
   });
 
+  // optional: a global alerts room (for admin / system notifications)
   socket.on("joinAlerts", () => {
     socket.join("alerts");
     console.log(`Client ${socket.id} joined alerts room`);
+  });
+
+  // ----- TYPING INDICATOR -----
+  socket.on("chat:typing", ({ toUserId, chatId }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("chat:typing", { chatId });
+  });
+
+  socket.on("chat:stopTyping", ({ toUserId, chatId }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("chat:stopTyping", { chatId });
+  });
+
+  // ----- VIDEO CALL SIGNALING -----
+  // someone presses the call button
+  socket.on("call:request", ({ fromUserId, toUserId, chatId }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:incoming", {
+      fromUserId,
+      chatId,
+    });
+  });
+
+  // WebRTC offer/answer exchange
+  socket.on("call:offer", ({ toUserId, chatId, offer }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:offer", { chatId, offer });
+  });
+
+  socket.on("call:answer", ({ toUserId, chatId, answer }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:answer", { chatId, answer });
+  });
+
+  socket.on("call:iceCandidate", ({ toUserId, chatId, candidate }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:iceCandidate", {
+      chatId,
+      candidate,
+    });
+  });
+
+  socket.on("call:end", ({ toUserId, chatId }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:end", { chatId });
   });
 
   socket.on("disconnect", () => {

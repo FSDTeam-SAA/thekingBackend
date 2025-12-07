@@ -6,6 +6,11 @@ import {
   updatePost,
   deletePost,
   getAllPosts,
+  deletePostComment,
+  getPostComments,
+  addPostComment,
+  getPostLikes,
+  toggleLikePost,
 } from "../controller/post.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -39,5 +44,14 @@ router.put(
 
 // Delete post
 router.delete("/:id", protect, deletePost);
+
+// likes
+router.post("/:id/like", protect, toggleLikePost);
+router.get("/:id/likes", protect, getPostLikes);
+
+// comments
+router.post("/:id/comments", protect, addPostComment);
+router.get("/:id/comments", protect, getPostComments);
+router.delete("/:id/comments/:commentId", protect, deletePostComment);
 
 export default router;

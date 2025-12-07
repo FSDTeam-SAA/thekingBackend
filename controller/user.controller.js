@@ -1,11 +1,13 @@
+// controller/user.controller.js
 import httpStatus from "http-status";
+import mongoose from "mongoose";
 import { User } from "../model/user.model.js";
 import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.js";
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
-import { DoctorReview } from "../model/doctorReview.model.js";
-
+import { DoctorReview } from "../model/doctorReview.model.js";   // make sure this model exists
+import { createNotification } from "../utils/notify.js";         // make sure this helper exists
 
 /**
  * Helpers
@@ -13,7 +15,15 @@ import { DoctorReview } from "../model/doctorReview.model.js";
 const normalizeDay = (day) => {
   if (!day) return null;
   const d = String(day).toLowerCase().trim();
-  const allowed = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+  const allowed = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ];
   return allowed.includes(d) ? d : null;
 };
 
@@ -26,7 +36,7 @@ const asNumber = (v) => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-// ✅ safe parse for form-data JSON
+// safe parse for form-data JSON strings
 const parseIfString = (v) => {
   if (typeof v !== "string") return v;
   try {
@@ -65,7 +75,15 @@ const sanitizeWeeklySchedule = (input) => {
   const map = new Map();
   for (const d of schedule) map.set(d.day, d);
 
-  const order = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+  const order = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ];
   return order.filter((d) => map.has(d)).map((d) => map.get(d));
 };
 
@@ -94,12 +112,16 @@ const sanitizeSpecialties = (input) => {
 };
 
 /**
- * Controllers
+ * Get current logged-in user profile
  */
 export const getProfile = catchAsync(async (req, res) => {
   const user = await User.findById(req.user._id).select(
     "-password -refreshToken -verificationInfo -password_reset_token"
   );
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -109,8 +131,10 @@ export const getProfile = catchAsync(async (req, res) => {
   });
 });
 
-
-
+/**
+ * Get users by role (patient | doctor | admin)
+ * For doctors we also add ratingSummary (avgRating + totalReviews)
+ */
 export const getUsersByRole = catchAsync(async (req, res) => {
   const { role } = req.params; // "patient" | "doctor" | "admin"
 
@@ -119,12 +143,11 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
   }
 
-  // base users list
-  const users = await User.find({ role })
-    .select("-password -refreshToken -verificationInfo -password_reset_token")
-    .lean();
+  let users = await User.find({ role }).select(
+    "-password -refreshToken -verificationInfo -password_reset_token"
+  ).lean();
 
-  // if role is not doctor we just return the list as-is
+  // If not doctor, just return
   if (role !== "doctor") {
     return sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -134,71 +157,15 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     });
   }
 
-  // ---- add ratingSummary for doctors ----
+  // For doctors, compute ratingSummary from DoctorReview
   const doctorIds = users.map((u) => u._id);
-
-  const stats = await DoctorReview.aggregate([
-    { $match: { doctor: { $in: doctorIds } } },
-    {
-      $group: {
-        _id: "$doctor",
-        avgRating: { $avg: "$rating" },
-        totalReviews: { $sum: 1 },
-      },
-    },
-  ]);
-
-  const statsMap = new Map(
-    stats.map((s) => [
-      String(s._id),
+  if (doctorIds.length) {
+    const stats = await DoctorReview.aggregate([
       {
-        avgRating: Number(s.avgRating.toFixed(1)),
-        totalReviews: s.totalReviews,
+        $match: {
+          doctor: { $in: doctorIds.map((id) => new mongoose.Types.ObjectId(id)) },
+        },
       },
-    ])
-  );
-
-  const doctorsWithRating = users.map((doc) => {
-    const s =
-      statsMap.get(String(doc._id)) || /** default if no reviews */ {
-        avgRating: 0,
-        totalReviews: 0,
-      };
-
-    return {
-      ...doc,
-      ratingSummary: s,
-    };
-  });
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: `Users fetched for role: ${role}`,
-    data: doctorsWithRating,
-  });
-});
-
-
-
-export const getUserDetails = catchAsync(async (req, res) => {
-  const { id } = req.params;
-
-  const user = await User.findById(id)
-    .select("-password -refreshToken -verificationInfo -password_reset_token")
-    .lean();
-
-  if (!user) {
-    throw new AppError(httpStatus.NOT_FOUND, "User not found");
-  }
-
-  let ratingSummary = { avgRating: 0, totalReviews: 0 };
-  let recentReviews = [];
-
-  if (user.role === "doctor") {
-    // 🔥 use user._id instead of new mongoose.Types.ObjectId(id)
-    const [summary] = await DoctorReview.aggregate([
-      { $match: { doctor: user._id } },
       {
         $group: {
           _id: "$doctor",
@@ -208,16 +175,80 @@ export const getUserDetails = catchAsync(async (req, res) => {
       },
     ]);
 
-    if (summary) {
+    const statMap = new Map();
+    stats.forEach((s) => {
+      statMap.set(String(s._id), {
+        avgRating: Number(s.avgRating?.toFixed(1)) || 0,
+        totalReviews: s.totalReviews || 0,
+      });
+    });
+
+    users = users.map((u) => {
+      const s = statMap.get(String(u._id)) || { avgRating: 0, totalReviews: 0 };
+      return {
+        ...u,
+        ratingSummary: s,
+      };
+    });
+  } else {
+    users = users.map((u) => ({
+      ...u,
+      ratingSummary: { avgRating: 0, totalReviews: 0 },
+    }));
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Users fetched for role: ${role}`,
+    data: users,
+  });
+});
+
+/**
+ * Get single user (doctor / patient / admin) by id
+ * For doctor we also include ratingSummary + recentReviews
+ */
+export const getUserDetails = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  let user = await User.findById(id).select(
+    "-password -refreshToken -verificationInfo -password_reset_token"
+  ).lean();
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  let ratingSummary = { avgRating: 0, totalReviews: 0 };
+  let recentReviews = [];
+
+  if (user.role === "doctor") {
+    // rating summary
+    const stats = await DoctorReview.aggregate([
+      {
+        $match: { doctor: new mongoose.Types.ObjectId(id) },
+      },
+      {
+        $group: {
+          _id: "$doctor",
+          avgRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+        },
+      },
+    ]);
+
+    if (stats.length) {
       ratingSummary = {
-        avgRating: Number(summary.avgRating.toFixed(1)),
-        totalReviews: summary.totalReviews,
+        avgRating: Number(stats[0].avgRating?.toFixed(1)) || 0,
+        totalReviews: stats[0].totalReviews || 0,
       };
     }
 
-    recentReviews = await DoctorReview.find({ doctor: user._id })
+    // latest 5 reviews
+    recentReviews = await DoctorReview.find({ doctor: id })
       .sort({ createdAt: -1 })
-      .limit(10)
+      .limit(5)
       .populate("patient", "fullName avatar")
       .lean();
   }
@@ -234,10 +265,9 @@ export const getUserDetails = catchAsync(async (req, res) => {
   });
 });
 
-
-
-
-
+/**
+ * Update current user profile
+ */
 export const updateProfile = catchAsync(async (req, res) => {
   const {
     fullName,
@@ -275,7 +305,10 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (experienceYears !== undefined) {
     const exp = asNumber(experienceYears);
     if (exp === undefined || exp < 0) {
-      throw new AppError(httpStatus.BAD_REQUEST, "experienceYears must be a positive number");
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "experienceYears must be a positive number"
+      );
     }
     user.experienceYears = exp;
   }
@@ -286,7 +319,10 @@ export const updateProfile = catchAsync(async (req, res) => {
     const lng = loc?.lng;
 
     if (lat === undefined || lng === undefined) {
-      throw new AppError(httpStatus.BAD_REQUEST, "location must include lat and lng");
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "location must include lat and lng"
+      );
     }
 
     user.location = { lat: String(lat).trim(), lng: String(lng).trim() };
@@ -295,7 +331,7 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (country !== undefined) user.country = String(country).trim();
   if (language !== undefined) user.language = String(language).trim();
 
-  // ✅ Doctor check (ONLY 'doctor')
+  // only doctors can update doctor fields
   const isDoctor = user.role === "doctor";
 
   const doctorPayloadTouched =
@@ -308,7 +344,10 @@ export const updateProfile = catchAsync(async (req, res) => {
     medicalLicenseNumber !== undefined;
 
   if (doctorPayloadTouched && !isDoctor) {
-    throw new AppError(httpStatus.FORBIDDEN, "Only doctors can update doctor profile fields");
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Only doctors can update doctor profile fields"
+    );
   }
 
   if (isDoctor) {
@@ -371,6 +410,9 @@ export const updateProfile = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Change password
+ */
 export const changePassword = catchAsync(async (req, res) => {
   const { currentPassword, newPassword, confirmPassword } = req.body;
 
@@ -398,5 +440,65 @@ export const changePassword = catchAsync(async (req, res) => {
     success: true,
     message: "Password changed",
     data: null,
+  });
+});
+
+/**
+ * Admin: update doctor approvalStatus (pending | approved | rejected)
+ * And notify the doctor.
+ * Route example: PATCH /user/doctor/:id/approval
+ */
+export const updateDoctorApprovalStatus = catchAsync(async (req, res) => {
+  const adminId = req.user._id;
+  const role = req.user.role;
+
+  if (role !== "admin") {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Only admin can update approval status"
+    );
+  }
+
+  const { id } = req.params; // doctor id
+  const { approvalStatus } = req.body;
+
+  if (!["pending", "approved", "rejected"].includes(approvalStatus)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Invalid approval status");
+  }
+
+  const doctor = await User.findById(id);
+  if (!doctor || doctor.role !== "doctor") {
+    throw new AppError(httpStatus.NOT_FOUND, "Doctor not found");
+  }
+
+  doctor.approvalStatus = approvalStatus;
+  await doctor.save();
+
+  let message = `Your account status has been updated to ${approvalStatus}.`;
+
+  if (approvalStatus === "approved") {
+    message = "Congratulations! Your doctor account has been approved.";
+  } else if (approvalStatus === "rejected") {
+    message = "Your doctor account has been rejected. Please contact support.";
+  }
+
+  await createNotification({
+    userId: doctor._id,
+    fromUserId: adminId,
+    type: "doctor_approved",
+    title: "Account status updated",
+    content: message,
+    meta: { approvalStatus },
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Doctor approval status updated",
+    data: {
+      _id: doctor._id,
+      fullName: doctor.fullName,
+      approvalStatus: doctor.approvalStatus,
+    },
   });
 });
