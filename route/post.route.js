@@ -47,11 +47,11 @@ router.delete("/:id", protect, deletePost);
 
 // likes
 router.post("/:id/like", protect, toggleLikePost);
-router.get("/:id/likes", protect, getPostLikes);
+router.get("/:id/likes", getPostLikes);
 
 // comments
 router.post("/:id/comments", protect, addPostComment);
-router.get("/:id/comments", protect, getPostComments);
+router.get("/:id/comments", getPostComments);
 router.delete("/:id/comments/:commentId", protect, deletePostComment);
 
 export default router;
