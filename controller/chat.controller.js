@@ -62,16 +62,16 @@ export const createOrGetChat = catchAsync(async (req, res) => {
       isGroup: false,
     });
 
-    chat = await chat
-      .populate("participants", "fullName avatar role")
-      .execPopulate?.(); // older Mongoose; if not, re-query
+    // chat = await chat
+    //   .populate("participants", "fullName avatar role")
+    //   .execPopulate?.(); // older Mongoose; if not, re-query
 
-    if (!chat.participants) {
-      // in case execPopulate is not available
-      chat = await Chat.findById(chat._id)
-        .populate("participants", "fullName avatar role")
-        .populate("lastMessage");
-    }
+    // if (!chat?.participants) {
+    //   // in case execPopulate is not available
+    //   chat = await Chat.findById(chat._id)
+    //     .populate("participants", "fullName avatar role")
+    //     .populate("lastMessage");
+    // }
   }
 
   sendResponse(res, {
