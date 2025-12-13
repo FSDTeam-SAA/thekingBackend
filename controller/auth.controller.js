@@ -6,6 +6,8 @@ import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { User } from "../model/user.model.js";
+import { ReferralCode } from "../model/referralCode.model.js";
+import { SystemSetting } from "../model/systemSetting.model.js";
 
 const normalizeRole = (role) => {
   const r = String(role || "patient").toLowerCase().trim();
@@ -26,6 +28,7 @@ export const register = catchAsync(async (req, res) => {
     role,
     specialty,
     medicalLicenseNumber,
+    referralCode: providedReferralCode,
   } = req.body;
 
   if (!email || !password || !fullName) {
@@ -48,6 +51,11 @@ export const register = catchAsync(async (req, res) => {
     );
   }
 
+  let normalizedReferralCode =
+    typeof providedReferralCode === "string"
+      ? providedReferralCode.trim().toUpperCase()
+      : "";
+
   // duplicates check
   const existingUser = await User.findOne({
     $or: [
@@ -66,23 +74,73 @@ export const register = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, message);
   }
 
+  let referralCodeDoc = null;
+
+  if (roleNormalized === "doctor") {
+    const settings = await SystemSetting.getSettings();
+    const requireReferralCode = settings?.requireDoctorReferralCode;
+
+    if (requireReferralCode && !normalizedReferralCode) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Referral code is required for doctor registration"
+      );
+    }
+
+    if (normalizedReferralCode) {
+      referralCodeDoc = await ReferralCode.claimActiveCode(normalizedReferralCode);
+      if (!referralCodeDoc) {
+        throw new AppError(
+          httpStatus.BAD_REQUEST,
+          "Referral code is invalid, inactive, or already used"
+        );
+      }
+    }
+  } else {
+    normalizedReferralCode = "";
+  }
+
   const exp = Number(experienceYears);
   const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
   const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
 
-  await User.create({
-    phone,
-    fullName,
-    email,
-    password,
-    experienceYears: expSafe,
-    role: roleNormalized,
-    specialty,
-    medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
-    approvalStatus,
-    verificationInfo: { token: "" },
-  });
+  let userCreated = false;
+
+  try {
+    const newUser = await User.create({
+      phone,
+      fullName,
+      email,
+      password,
+      experienceYears: expSafe,
+      role: roleNormalized,
+      specialty,
+      medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
+      approvalStatus,
+      verificationInfo: { token: "" },
+      registrationReferralCode: normalizedReferralCode || undefined,
+    });
+    userCreated = true;
+
+    if (referralCodeDoc) {
+      await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
+        $inc: { timesUsed: 1 },
+        $set: {
+          assignedDoctor: newUser._id,
+          isActive: false,
+          isRedeemed: true,
+        },
+      });
+    }
+  } catch (error) {
+    if (referralCodeDoc && !userCreated) {
+      await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
+        $set: { isRedeemed: false },
+      });
+    }
+    throw error;
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

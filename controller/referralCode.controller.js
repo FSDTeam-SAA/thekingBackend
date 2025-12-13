@@ -1,0 +1,154 @@
+import httpStatus from "http-status";
+import AppError from "../errors/AppError.js";
+import catchAsync from "../utils/catchAsync.js";
+import sendResponse from "../utils/sendResponse.js";
+import { ReferralCode } from "../model/referralCode.model.js";
+
+const normalizeCode = (code = "") => String(code).trim().toUpperCase();
+
+export const createReferralCode = catchAsync(async (req, res) => {
+  const { code, description, isActive } = req.body;
+
+  if (!code) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Referral code is required");
+  }
+
+  const normalizedCode = normalizeCode(code);
+
+  const existingCode = await ReferralCode.findOne({ code: normalizedCode });
+  if (existingCode) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Referral code already exists");
+  }
+
+  const referralCode = await ReferralCode.create({
+    code: normalizedCode,
+    description,
+    isActive: typeof isActive === "boolean" ? isActive : true,
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: "Referral code created successfully",
+    data: referralCode,
+  });
+});
+
+export const getReferralCodes = catchAsync(async (req, res) => {
+  const { status } = req.query;
+  const filter = {};
+
+  if (status === "active") filter.isActive = true;
+  else if (status === "inactive") filter.isActive = false;
+
+  const referralCodes = await ReferralCode.find(filter).sort({ createdAt: -1 });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Referral codes fetched successfully",
+    data: referralCodes,
+  });
+});
+
+export const getReferralCode = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const referralCode = await ReferralCode.findById(id);
+
+  if (!referralCode) {
+    throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Referral code fetched successfully",
+    data: referralCode,
+  });
+});
+
+export const updateReferralCode = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { code, description } = req.body;
+
+  const referralCode = await ReferralCode.findById(id);
+  if (!referralCode) {
+    throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
+  }
+
+  if (code) {
+    if (referralCode.isRedeemed) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Referral code cannot be changed after it has been used"
+      );
+    }
+    const normalizedCode = normalizeCode(code);
+    const conflict = await ReferralCode.findOne({ code: normalizedCode, _id: { $ne: id } });
+    if (conflict) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Referral code already exists");
+    }
+    referralCode.code = normalizedCode;
+  }
+
+  if (typeof description !== "undefined") {
+    referralCode.description = description;
+  }
+
+  await referralCode.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Referral code updated successfully",
+    data: referralCode,
+  });
+});
+
+export const updateReferralCodeStatus = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { isActive } = req.body;
+
+  if (typeof isActive !== "boolean") {
+    throw new AppError(httpStatus.BAD_REQUEST, "isActive must be a boolean");
+  }
+
+  const referralCode = await ReferralCode.findById(id);
+
+  if (!referralCode) {
+    throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
+  }
+
+  if (referralCode.isRedeemed && isActive) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Referral code has already been used and cannot be reactivated"
+    );
+  }
+
+  referralCode.isActive = isActive;
+  await referralCode.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: isActive ? "Referral code activated" : "Referral code deactivated",
+    data: referralCode,
+  });
+});
+
+export const deleteReferralCode = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const referralCode = await ReferralCode.findByIdAndDelete(id);
+
+  if (!referralCode) {
+    throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Referral code deleted successfully",
+    data: null,
+  });
+});

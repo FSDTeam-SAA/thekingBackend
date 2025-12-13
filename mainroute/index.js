@@ -8,8 +8,9 @@ import postRoute from "../route/post.route.js";
 import reelRoute from "../route/reel.route.js";
 import doctorReviewRoute from "../route/doctorReview.route.js";
 import notificationRoute from "../route/notification.route.js";
-// mainroute/index.js
 import chatRoute from "../route/chat.route.js";
+import referralCodeRoute from "../route/referralCode.route.js";
+import systemSettingRoute from "../route/systemSetting.route.js";
 
 const router = express.Router();
 
@@ -23,6 +24,8 @@ router.use("/reels", reelRoute);
 router.use("/doctor-reviews", doctorReviewRoute);
 router.use("/notification", notificationRoute);
 router.use("/chat", chatRoute);
+router.use("/referral-codes", referralCodeRoute);
+router.use("/settings", systemSettingRoute);
 
 
 

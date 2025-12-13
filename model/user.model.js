@@ -82,61 +82,61 @@ const userSchema = new Schema(
 
     weeklySchedule: { type: [dayScheduleSchema], default: [] },
 
-    gender: {
-      type: String,
-      enum: [
-        "male",
-        "female",
-        "non-binary",
-        "trans man",
-        "trans woman",
-        "other",
-        "prefer not to say",
-      ],
-    },
+    // gender: {
+    //   type: String,
+    //   enum: [
+    //     "male",
+    //     "female",
+    //     "non-binary",
+    //     "trans man",
+    //     "trans woman",
+    //     "other",
+    //     "prefer not to say",
+    //   ],
+    // },
 
     selfDescription: { type: String, maxlength: 1000 },
 
     dob: { type: Date },
 
-    height: { type: String },
+    // height: { type: String },
 
-    sexualOrientation: {
-      type: String,
-      enum: ["man", "woman", "prefer not to say"],
-    },
+    // sexualOrientation: {
+    //   type: String,
+    //   enum: ["man", "woman", "prefer not to say"],
+    // },
 
-    personalityType: {
-      type: String,
-      enum: [
-        "INTJ","INTP","INFJ","INFP","ISTJ","ISTP","ISFJ","ISFP",
-        "ENTJ","ENTP","ENFJ","ENFP","ESTJ","ESTP","ESFJ","ESFP",
-      ],
-    },
+    // personalityType: {
+    //   type: String,
+    //   enum: [
+    //     "INTJ","INTP","INFJ","INFP","ISTJ","ISTP","ISFJ","ISFP",
+    //     "ENTJ","ENTP","ENFJ","ENFP","ESTJ","ESTP","ESFJ","ESFP",
+    //   ],
+    // },
 
-    religion: {
-      type: String,
-      enum: [
-        "agnostic","atheist","buddhist","catholic","christian","hindu",
-        "jewish","muslim","spiritual","prefer not to say",
-      ],
-    },
+    // religion: {
+    //   type: String,
+    //   enum: [
+    //     "agnostic","atheist","buddhist","catholic","christian","hindu",
+    //     "jewish","muslim","spiritual","prefer not to say",
+    //   ],
+    // },
 
-    lookingFor: [
-      {
-        type: String,
-        enum: [
-          "something casual",
-          "friends",
-          "friends with benefits",
-          "one night stand",
-          "long term dating",
-          "short term dating",
-          "i don't know yet",
-          "vibe",
-        ],
-      },
-    ],
+    // lookingFor: [
+    //   {
+    //     type: String,
+    //     enum: [
+    //       "something casual",
+    //       "friends",
+    //       "friends with benefits",
+    //       "one night stand",
+    //       "long term dating",
+    //       "short term dating",
+    //       "i don't know yet",
+    //       "vibe",
+    //     ],
+    //   },
+    // ],
 
     interests: [{ type: String, maxlength: 100 }],
 
@@ -161,12 +161,14 @@ const userSchema = new Schema(
 
     language: { type: String, default: "en" },
 
-    country: { type: String, default: "Kuwait" },
+    country: { type: String, default: "" },
 
-    referralCode: {
-      type: String,
-      default: () => Math.random().toString(36).substr(2, 9).toUpperCase(),
-    },
+    // referralCode: {
+    //   type: String,
+    //   default: () => Math.random().toString(36).substr(2, 9).toUpperCase(),
+    // },
+
+    registrationReferralCode: { type: String, trim: true },
 
     // ✅ ONLY roles
     role: {
@@ -181,14 +183,14 @@ const userSchema = new Schema(
       default: "approved",
     },
 
-    verificationInfo: {
-      verified: { type: Boolean, default: false },
-      token: { type: String, default: "" },
-    },
+    // verificationInfo: {
+    //   verified: { type: Boolean, default: false },
+    //   token: { type: String, default: "" },
+    // },
 
     password_reset_token: { type: String, default: "" },
 
-    fine: { type: Number, default: 0 },
+    // fine: { type: Number, default: 0 },
 
     refreshToken: { type: String, default: "" },
 
