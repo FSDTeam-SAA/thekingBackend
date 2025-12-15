@@ -6,8 +6,6 @@ const referralCodeSchema = new Schema(
     description: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
     timesUsed: { type: Number, default: 0, min: 0 },
-    isRedeemed: { type: Boolean, default: false },
-    assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }
 );
@@ -23,22 +21,16 @@ referralCodeSchema.statics.findActiveCode = function (codeValue) {
   return this.findOne({
     code: normalized,
     isActive: true,
-    isRedeemed: { $ne: true },
   });
 };
 
 referralCodeSchema.statics.claimActiveCode = function (codeValue) {
   const normalized = normalizeCode(codeValue);
   if (!normalized) return null;
-  return this.findOneAndUpdate(
-    {
-      code: normalized,
-      isActive: true,
-      isRedeemed: { $ne: true },
-    },
-    { $set: { isRedeemed: true } },
-    { new: true }
-  );
+  return this.findOne({
+    code: normalized,
+    isActive: true,
+  });
 };
 
 export const ReferralCode = mongoose.model("ReferralCode", referralCodeSchema);

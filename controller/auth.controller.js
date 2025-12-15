@@ -87,15 +87,15 @@ export const register = catchAsync(async (req, res) => {
       );
     }
 
-    if (normalizedReferralCode) {
-      referralCodeDoc = await ReferralCode.claimActiveCode(normalizedReferralCode);
-      if (!referralCodeDoc) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          "Referral code is invalid, inactive, or already used"
-        );
-      }
-    }
+    // if (normalizedReferralCode) {
+    //   referralCodeDoc = await ReferralCode.claimActiveCode(normalizedReferralCode);
+    //   if (!referralCodeDoc) {
+    //     throw new AppError(
+    //       httpStatus.BAD_REQUEST,
+    //       "Referral code is invalid or inactive"
+    //     );
+    //   }
+    // }
   } else {
     normalizedReferralCode = "";
   }
@@ -105,41 +105,24 @@ export const register = catchAsync(async (req, res) => {
 
   const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
 
-  let userCreated = false;
+  const newUser = await User.create({
+    phone,
+    fullName,
+    email,
+    password,
+    experienceYears: expSafe,
+    role: roleNormalized,
+    specialty,
+    medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
+    approvalStatus,
+    verificationInfo: { token: "" },
+    registrationReferralCode: normalizedReferralCode || undefined,
+  });
 
-  try {
-    const newUser = await User.create({
-      phone,
-      fullName,
-      email,
-      password,
-      experienceYears: expSafe,
-      role: roleNormalized,
-      specialty,
-      medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
-      approvalStatus,
-      verificationInfo: { token: "" },
-      registrationReferralCode: normalizedReferralCode || undefined,
+  if (referralCodeDoc) {
+    await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
+      $inc: { timesUsed: 1 },
     });
-    userCreated = true;
-
-    if (referralCodeDoc) {
-      await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
-        $inc: { timesUsed: 1 },
-        $set: {
-          assignedDoctor: newUser._id,
-          isActive: false,
-          isRedeemed: true,
-        },
-      });
-    }
-  } catch (error) {
-    if (referralCodeDoc && !userCreated) {
-      await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
-        $set: { isRedeemed: false },
-      });
-    }
-    throw error;
   }
 
   sendResponse(res, {

@@ -77,10 +77,10 @@ export const updateReferralCode = catchAsync(async (req, res) => {
   }
 
   if (code) {
-    if (referralCode.isRedeemed) {
+    if (referralCode.timesUsed > 0) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Referral code cannot be changed after it has been used"
+        "Referral code cannot be changed after doctors have registered with it"
       );
     }
     const normalizedCode = normalizeCode(code);
@@ -117,13 +117,6 @@ export const updateReferralCodeStatus = catchAsync(async (req, res) => {
 
   if (!referralCode) {
     throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
-  }
-
-  if (referralCode.isRedeemed && isActive) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "Referral code has already been used and cannot be reactivated"
-    );
   }
 
   referralCode.isActive = isActive;
