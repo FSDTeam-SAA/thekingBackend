@@ -1,5 +1,6 @@
 // controller/appointment.controller.js
 import httpStatus from "http-status";
+import mongoose from "mongoose";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import sendResponse from "../utils/sendResponse.js";
@@ -23,6 +24,15 @@ const parseDate = (d) => {
   return Number.isNaN(dt.getTime()) ? null : dt;
 };
 
+const parseJSONMaybe = (value) => {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
 export const createAppointment = catchAsync(async (req, res) => {
   const {
     doctorId,
@@ -30,6 +40,7 @@ export const createAppointment = catchAsync(async (req, res) => {
     date,            // "2025-12-04"
     time,            // "10:30"
     symptoms,
+    bookedFor,
   } = req.body;
 
   const patientId = req.user?._id;
@@ -43,6 +54,67 @@ export const createAppointment = catchAsync(async (req, res) => {
   const patient = await User.findById(patientId);
   if (!patient) {
     throw new AppError(httpStatus.NOT_FOUND, "Patient not found");
+  }
+
+  const bookedForInput = parseJSONMaybe(bookedFor) || {};
+  const typeRaw = String(bookedForInput?.type || "").trim().toLowerCase();
+  let bookingScope = "self";
+  if (!typeRaw) {
+    bookingScope = "self";
+  } else if (["self", "me", "myself"].includes(typeRaw)) {
+    bookingScope = "self";
+  } else if (["dependent", "dependant", "child"].includes(typeRaw)) {
+    bookingScope = "dependent";
+  } else {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "bookedFor.type must be 'self' or 'dependent'"
+    );
+  }
+
+  const patientNameSnapshot = String(patient.fullName || "").trim();
+  let bookedForPayload =
+    bookingScope === "self"
+      ? { type: "self", nameSnapshot: patientNameSnapshot }
+      : null;
+
+  if (bookingScope === "dependent") {
+    const dependentId =
+      bookedForInput?.dependentId ||
+      bookedForInput?._id ||
+      bookedForInput?.id;
+
+    if (!dependentId || !mongoose.Types.ObjectId.isValid(dependentId)) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "A valid dependentId is required when booking for a dependent"
+      );
+    }
+
+    const dependent =
+      (patient.dependents || []).find(
+        (dep) => String(dep._id) === String(dependentId)
+      ) || null;
+
+    if (!dependent) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Dependent not found for the current user"
+      );
+    }
+
+    if (dependent.isActive === false) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Dependent is inactive and cannot be used for booking"
+      );
+    }
+
+    bookedForPayload = {
+      type: "dependent",
+      dependentId: dependent._id,
+      nameSnapshot: String(dependent.fullName || "").trim(),
+    };
   }
 
   // 2) validate type
@@ -116,6 +188,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   const appointment = await Appointment.create({
     doctor: doctorId,
     patient: patientId,
+    bookedFor: bookedForPayload,
     appointmentType: type,
     appointmentDate,
     time,
@@ -138,6 +211,7 @@ export const createAppointment = catchAsync(async (req, res) => {
       time,
       patientId,
       patientName: patient.fullName,
+      bookedFor: bookedForPayload,
     },
   });
 

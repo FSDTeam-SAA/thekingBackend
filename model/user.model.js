@@ -39,6 +39,16 @@ const dayScheduleSchema = new Schema(
   { _id: false }
 );
 
+const dependentSchema = new Schema({
+  fullName: { type: String, trim: true, required: true },
+  relationship: { type: String, trim: true },
+  gender: { type: String, trim: true },
+  dob: { type: Date },
+  phone: { type: String, trim: true },
+  notes: { type: String, trim: true, maxlength: 500 },
+  isActive: { type: Boolean, default: true },
+});
+
 const userSchema = new Schema(
   {
     fullName: { type: String, trim: true, required: true },
@@ -169,6 +179,8 @@ const userSchema = new Schema(
     // },
 
     registrationReferralCode: { type: String, trim: true },
+
+    dependents: { type: [dependentSchema], default: [] },
 
     // ✅ ONLY roles
     role: {

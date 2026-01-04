@@ -111,6 +111,34 @@ const sanitizeSpecialties = (input) => {
   return input.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 20);
 };
 
+const trimmedOrUndefined = (value) => {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = String(value).trim();
+  return trimmed || undefined;
+};
+
+const parseOptionalDate = (value, fieldName) => {
+  const trimmed = trimmedOrUndefined(value);
+  if (trimmed === undefined) return undefined;
+  const dt = new Date(trimmed);
+  if (Number.isNaN(dt.getTime())) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `${fieldName || "Date"} must be valid`
+    );
+  }
+  return dt;
+};
+
+const parseBooleanInput = (value) => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "y"].includes(normalized)) return true;
+  if (["false", "0", "no", "n"].includes(normalized)) return false;
+  return Boolean(value);
+};
+
 /**
  * Get current logged-in user profile
  */
@@ -439,6 +467,184 @@ export const changePassword = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Password changed",
+    data: null,
+  });
+});
+
+export const getMyDependents = catchAsync(async (req, res) => {
+  const user = await User.findById(req.user._id).select("dependents");
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Dependents fetched",
+    data: user.dependents || [],
+  });
+});
+
+export const addDependent = catchAsync(async (req, res) => {
+  const {
+    fullName,
+    relationship,
+    gender,
+    dob,
+    phone,
+    notes,
+  } = req.body;
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  const normalizedName = trimmedOrUndefined(fullName);
+  if (!normalizedName) {
+    throw new AppError(httpStatus.BAD_REQUEST, "fullName is required");
+  }
+
+  if ((user.dependents || []).length >= 20) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "You can add up to 20 dependents"
+    );
+  }
+
+  const dependentPayload = {
+    fullName: normalizedName,
+  };
+
+  const rel = trimmedOrUndefined(relationship);
+  if (rel !== undefined) dependentPayload.relationship = rel;
+
+  const gen = trimmedOrUndefined(gender);
+  if (gen !== undefined) dependentPayload.gender = gen;
+
+  const phoneVal = trimmedOrUndefined(phone);
+  if (phoneVal !== undefined) dependentPayload.phone = phoneVal;
+
+  const notesVal = trimmedOrUndefined(notes);
+  if (notesVal !== undefined) {
+    if (notesVal.length > 500) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "notes cannot exceed 500 characters"
+      );
+    }
+    dependentPayload.notes = notesVal;
+  }
+
+  const dobVal = parseOptionalDate(dob, "dob");
+  if (dobVal !== undefined) dependentPayload.dob = dobVal;
+
+  user.dependents = user.dependents || [];
+  user.dependents.push(dependentPayload);
+  await user.save();
+
+  const createdDependent = user.dependents[user.dependents.length - 1];
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: "Dependent added",
+    data: createdDependent,
+  });
+});
+
+export const updateDependent = catchAsync(async (req, res) => {
+  const { dependentId } = req.params;
+  const {
+    fullName,
+    relationship,
+    gender,
+    dob,
+    phone,
+    notes,
+    isActive,
+  } = req.body;
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  const dependent = user.dependents.id(dependentId);
+  if (!dependent) {
+    throw new AppError(httpStatus.NOT_FOUND, "Dependent not found");
+  }
+
+  if (fullName !== undefined) {
+    const normalizedName = trimmedOrUndefined(fullName);
+    if (!normalizedName) {
+      throw new AppError(httpStatus.BAD_REQUEST, "fullName cannot be empty");
+    }
+    dependent.fullName = normalizedName;
+  }
+
+  if (relationship !== undefined) {
+    const rel = trimmedOrUndefined(relationship);
+    dependent.relationship = rel;
+  }
+
+  if (gender !== undefined) {
+    const gen = trimmedOrUndefined(gender);
+    dependent.gender = gen;
+  }
+
+  if (phone !== undefined) {
+    const phoneVal = trimmedOrUndefined(phone);
+    dependent.phone = phoneVal;
+  }
+
+  if (notes !== undefined) {
+    const notesVal = trimmedOrUndefined(notes);
+    if (notesVal && notesVal.length > 500) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "notes cannot exceed 500 characters"
+      );
+    }
+    dependent.notes = notesVal;
+  }
+
+  if (dob !== undefined) {
+    const dobVal = parseOptionalDate(dob, "dob");
+    dependent.dob = dobVal;
+  }
+
+  if (isActive !== undefined) {
+    const activeVal = parseBooleanInput(isActive);
+    if (activeVal !== undefined) {
+      dependent.isActive = activeVal;
+    }
+  }
+
+  await user.save();
+
+  const updatedDependent = user.dependents.id(dependentId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Dependent updated",
+    data: updatedDependent,
+  });
+});
+
+export const deleteDependent = catchAsync(async (req, res) => {
+  const { dependentId } = req.params;
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  const dependent = user.dependents.id(dependentId);
+  if (!dependent) {
+    throw new AppError(httpStatus.NOT_FOUND, "Dependent not found");
+  }
+
+  dependent.deleteOne();
+  await user.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Dependent removed",
     data: null,
   });
 });

@@ -22,6 +22,16 @@ const appointmentSchema = new Schema(
       ref: "User",
       required: true,
     },
+    bookedFor: {
+      type: {
+        type: String,
+        enum: ["self", "dependent"],
+        required: true,
+        default: "self",
+      },
+      dependentId: { type: mongoose.Schema.Types.ObjectId },
+      nameSnapshot: { type: String, trim: true, default: "" },
+    },
 
     // "physical" (pay at clinic) or "video" (online payment)
     appointmentType: {
