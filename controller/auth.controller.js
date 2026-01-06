@@ -103,7 +103,9 @@ export const register = catchAsync(async (req, res) => {
   const exp = Number(experienceYears);
   const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
-  const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
+  // const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
+  
+  const approvalStatus = "approved";
 
   const newUser = await User.create({
     phone,

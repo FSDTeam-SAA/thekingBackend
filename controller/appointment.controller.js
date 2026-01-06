@@ -440,6 +440,8 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
         "Paid amount is less than the doctor's fees"
       );
     }
+//==============================================================================================================extra addddddddddddddddddddd
+    appointment.paymentVerified = true;
 
     // appointment.paidAmount = paidAmount; // uncomment if you store it
   }
@@ -514,9 +516,11 @@ const getDateRangeForView = (view) => {
   if (view === "daily") {
     start = new Date(now);
     start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999); // আজকের দিনের শেষ পর্যন্ত ===================================================new addddddd
   } else if (view === "weekly") {
     start = new Date(now);
     start.setHours(0, 0, 0, 0);
+     end.setHours(23, 59, 59, 999); // আজকের দিনের শেষ পর্যন্ত ===================================================new addddddd
     start.setDate(start.getDate() - 6);
   } else if (view === "monthly") {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
