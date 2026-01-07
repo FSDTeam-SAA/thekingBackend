@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import sendResponse from "../utils/sendResponse.js";
-import { uploadOnCloudinary } from "../utils/commonMethod.js";
+import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/commonMethod.js";
 import { User } from "../model/user.model.js";
 import { Appointment } from "../model/appointment.model.js";
 import { createNotification } from "../utils/notify.js";   // 🔔 <– add this
@@ -33,6 +33,67 @@ const parseJSONMaybe = (value) => {
   }
 };
 
+const buildBookedForPayload = (rawBookedFor, patient) => {
+  const bookedForInput = parseJSONMaybe(rawBookedFor) || {};
+  const typeRaw = String(bookedForInput?.type || "").trim().toLowerCase();
+
+  let bookingScope = "self";
+  if (!typeRaw) {
+    bookingScope = "self";
+  } else if (["self", "me", "myself"].includes(typeRaw)) {
+    bookingScope = "self";
+  } else if (["dependent", "dependant", "child"].includes(typeRaw)) {
+    bookingScope = "dependent";
+  } else {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "bookedFor.type must be 'self' or 'dependent'"
+    );
+  }
+
+  const patientNameSnapshot = String(patient.fullName || "").trim();
+  if (bookingScope === "self") {
+    return { type: "self", nameSnapshot: patientNameSnapshot };
+  }
+
+  const dependentId =
+    bookedForInput?.dependentId ||
+    bookedForInput?._id ||
+    bookedForInput?.id;
+
+  if (!dependentId || !mongoose.Types.ObjectId.isValid(dependentId)) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "A valid dependentId is required when booking for a dependent"
+    );
+  }
+
+  const dependent =
+    (patient.dependents || []).find(
+      (dep) => String(dep._id) === String(dependentId)
+    ) || null;
+
+  if (!dependent) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Dependent not found for the current user"
+    );
+  }
+
+  if (dependent.isActive === false) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Dependent is inactive and cannot be used for booking"
+    );
+  }
+
+  return {
+    type: "dependent",
+    dependentId: dependent._id,
+    nameSnapshot: String(dependent.fullName || "").trim(),
+  };
+};
+
 export const createAppointment = catchAsync(async (req, res) => {
   const {
     doctorId,
@@ -56,66 +117,7 @@ export const createAppointment = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Patient not found");
   }
 
-  const bookedForInput = parseJSONMaybe(bookedFor) || {};
-  const typeRaw = String(bookedForInput?.type || "").trim().toLowerCase();
-  let bookingScope = "self";
-  if (!typeRaw) {
-    bookingScope = "self";
-  } else if (["self", "me", "myself"].includes(typeRaw)) {
-    bookingScope = "self";
-  } else if (["dependent", "dependant", "child"].includes(typeRaw)) {
-    bookingScope = "dependent";
-  } else {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "bookedFor.type must be 'self' or 'dependent'"
-    );
-  }
-
-  const patientNameSnapshot = String(patient.fullName || "").trim();
-  let bookedForPayload =
-    bookingScope === "self"
-      ? { type: "self", nameSnapshot: patientNameSnapshot }
-      : null;
-
-  if (bookingScope === "dependent") {
-    const dependentId =
-      bookedForInput?.dependentId ||
-      bookedForInput?._id ||
-      bookedForInput?.id;
-
-    if (!dependentId || !mongoose.Types.ObjectId.isValid(dependentId)) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "A valid dependentId is required when booking for a dependent"
-      );
-    }
-
-    const dependent =
-      (patient.dependents || []).find(
-        (dep) => String(dep._id) === String(dependentId)
-      ) || null;
-
-    if (!dependent) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "Dependent not found for the current user"
-      );
-    }
-
-    if (dependent.isActive === false) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "Dependent is inactive and cannot be used for booking"
-      );
-    }
-
-    bookedForPayload = {
-      type: "dependent",
-      dependentId: dependent._id,
-      nameSnapshot: String(dependent.fullName || "").trim(),
-    };
-  }
+  const bookedForPayload = buildBookedForPayload(bookedFor, patient);
 
   // 2) validate type
   const type = normalizeAppointmentType(appointmentType);
@@ -346,6 +348,176 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   });
 });
 
+export const updateAppointment = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { appointmentType, date, time, symptoms, bookedFor } = req.body;
+
+  const userId = req.user._id;
+  const role = req.user.role;
+
+  const appointment = await Appointment.findById(id);
+  if (!appointment) {
+    throw new AppError(httpStatus.NOT_FOUND, "Appointment not found");
+  }
+
+  const isPatientOwner =
+    role === "patient" && String(appointment.patient) === String(userId);
+  const isDoctorOwner =
+    role === "doctor" && String(appointment.doctor) === String(userId);
+  const isAdmin = role === "admin";
+
+  if (!isPatientOwner && !isDoctorOwner && !isAdmin) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "You are not allowed to update this appointment"
+    );
+  }
+
+  if (["completed", "cancelled"].includes(appointment.status)) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Completed or cancelled appointments cannot be updated"
+    );
+  }
+
+  const updates = {};
+
+  if (appointmentType !== undefined) {
+    const type = normalizeAppointmentType(appointmentType);
+    if (!type) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "appointmentType must be physical or video"
+      );
+    }
+    updates.appointmentType = type;
+  }
+
+  if (date !== undefined) {
+    const appointmentDate = parseDate(date);
+    if (!appointmentDate) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Invalid date format");
+    }
+    updates.appointmentDate = appointmentDate;
+  }
+
+  if (time !== undefined) {
+    if (!timeRegex.test(time || "")) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "time must be HH:MM in 24-hour format (e.g. 10:30)"
+      );
+    }
+    updates.time = time;
+  }
+
+  if (symptoms !== undefined) {
+    updates.symptoms = String(symptoms);
+  }
+
+  if (bookedFor !== undefined) {
+    if (!isPatientOwner) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        "Only the patient can update bookedFor details"
+      );
+    }
+    updates.bookedFor = buildBookedForPayload(bookedFor, req.user);
+  }
+
+  const medicalDocsFiles = req.files?.medicalDocuments || [];
+  const paymentFiles = req.files?.paymentScreenshot || [];
+
+  if (medicalDocsFiles.length > 0) {
+    for (const doc of appointment.medicalDocuments || []) {
+      if (doc?.public_id) {
+        await deleteFromCloudinary(doc.public_id).catch(() => {});
+      }
+    }
+
+    const medicalDocuments = [];
+    for (const file of medicalDocsFiles) {
+      const up = await uploadOnCloudinary(file.buffer, {
+        folder: "docmobi/appointments/medicalDocs",
+        resource_type: "image",
+      });
+      medicalDocuments.push({ public_id: up.public_id, url: up.secure_url });
+    }
+    updates.medicalDocuments = medicalDocuments;
+  }
+
+  if (paymentFiles[0]) {
+    if (appointment.paymentScreenshot?.public_id) {
+      await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
+        () => {}
+      );
+    }
+
+    const up = await uploadOnCloudinary(paymentFiles[0].buffer, {
+      folder: "docmobi/appointments/payment",
+      resource_type: "image",
+    });
+    updates.paymentScreenshot = { public_id: up.public_id, url: up.secure_url };
+  }
+
+  const finalType = updates.appointmentType || appointment.appointmentType;
+  const finalDate = updates.appointmentDate || appointment.appointmentDate;
+  const finalTime = updates.time || appointment.time;
+
+  if (
+    finalType === "video" &&
+    !updates.paymentScreenshot &&
+    !appointment.paymentScreenshot?.url
+  ) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Payment screenshot is required for video appointments"
+    );
+  }
+
+  const scheduleChanged =
+    (updates.appointmentDate &&
+      new Date(updates.appointmentDate).getTime() !==
+        new Date(appointment.appointmentDate).getTime()) ||
+    (updates.time && updates.time !== appointment.time);
+
+  if (scheduleChanged) {
+    const conflict = await Appointment.findOne({
+      doctor: appointment.doctor,
+      appointmentDate: finalDate,
+      time: finalTime,
+      status: { $in: ["pending", "accepted"] },
+      _id: { $ne: appointment._id },
+    });
+
+    if (conflict) {
+      throw new AppError(
+        httpStatus.CONFLICT,
+        "This time slot is already booked for this doctor"
+      );
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, "No fields to update");
+  }
+
+  appointment.set(updates);
+  await appointment.save();
+
+  await appointment.populate([
+    { path: "doctor", select: "fullName role specialty avatar fees" },
+    { path: "patient", select: "fullName role avatar" },
+  ]);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Appointment updated successfully",
+    data: appointment,
+  });
+});
+
 export const updateAppointmentStatus = catchAsync(async (req, res) => {
   const { id } = req.params;                 // appointment id
   const { status, patient, price } = req.body;
@@ -502,6 +674,58 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
       appointment,
       sessionInfo,
     },
+  });
+});
+
+export const deleteAppointment = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user._id;
+  const role = req.user.role;
+
+  const appointment = await Appointment.findById(id);
+  if (!appointment) {
+    throw new AppError(httpStatus.NOT_FOUND, "Appointment not found");
+  }
+
+  const isPatientOwner =
+    role === "patient" && String(appointment.patient) === String(userId);
+  const isDoctorOwner =
+    role === "doctor" && String(appointment.doctor) === String(userId);
+  const isAdmin = role === "admin";
+
+  if (!isPatientOwner && !isDoctorOwner && !isAdmin) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "You are not allowed to delete this appointment"
+    );
+  }
+
+  if (appointment.status === "completed" && !isAdmin) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Completed appointments cannot be deleted"
+    );
+  }
+
+  for (const doc of appointment.medicalDocuments || []) {
+    if (doc?.public_id) {
+      await deleteFromCloudinary(doc.public_id).catch(() => {});
+    }
+  }
+
+  if (appointment.paymentScreenshot?.public_id) {
+    await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
+      () => {}
+    );
+  }
+
+  await appointment.deleteOne();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Appointment deleted successfully",
+    data: null,
   });
 });
 
