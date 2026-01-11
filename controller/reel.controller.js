@@ -1,5 +1,6 @@
 import httpStatus from "http-status";
 import { Reel } from "../model/reel.model.js";
+import { ReelComment } from "../model/reelComment.model.js";
 import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.js";
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
@@ -67,7 +68,7 @@ export const createReel = catchAsync(async (req, res) => {
     thumbnail,
   });
 
-  const populated = await reel.populate("author", "fullName avatar role");
+  const populated = await reel.populate("author", "fullName avatar role specialty");
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -78,37 +79,54 @@ export const createReel = catchAsync(async (req, res) => {
 });
 
 /**
- * Get reels (feed)
- * - doctor: can see all public reels
- * - others: only public reels (plus own private if you want)
- * query:
- *  - page, limit
- *  - authorId (optional)
+ * Get reels (feed) - currently only user's own reels
+ * query: page, limit, authorId (optional)
  */
 export const getReels = catchAsync(async (req, res) => {
-  const { page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 10, authorId } = req.query;
 
   const userId = req.user._id;
+  const targetUserId = authorId || userId;
 
   const pageNum = Number(page) || 1;
   const limitNum = Number(limit) || 10;
 
+  const query = { author: targetUserId };
+
   const [reels, total] = await Promise.all([
-    Reel.find({ author: userId })
+    Reel.find(query)
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
-      .populate("author", "fullName avatar role")
+      .populate("author", "fullName avatar role specialty")
       .lean(),
-    Reel.countDocuments({ author: userId }),
+    Reel.countDocuments(query),
   ]);
+
+  // ✅ Add user-specific data (isLiked, commentsCount)
+  const reelsWithUserData = await Promise.all(
+    reels.map(async (reel) => {
+      const [isLiked, commentsCount] = await Promise.all([
+        reel.likes?.includes(userId.toString()),
+        ReelComment.countDocuments({ reel: reel._id }),
+      ]);
+      
+      return {
+        ...reel,
+        isLiked: !!isLiked,
+        likesCount: reel.likes?.length || 0,
+        commentsCount,
+        sharesCount: reel.sharesCount || 0,
+      };
+    })
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Reels fetched successfully",
     data: {
-      items: reels,
+      items: reelsWithUserData,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -118,28 +136,49 @@ export const getReels = catchAsync(async (req, res) => {
   });
 });
 
-
+/**
+ * Get all public reels (main feed)
+ */
 export const getAllReels = catchAsync(async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
   const pageNum = Number(page) || 1;
   const limitNum = Number(limit) || 10;
+  const userId = req.user._id;
 
   const [reels, total] = await Promise.all([
-    Reel.find()
+    Reel.find({ visibility: "public" })
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
-      .populate("author", "fullName avatar role")
+      .populate("author", "fullName avatar role specialty")
       .lean(),
-    Reel.countDocuments(),
+    Reel.countDocuments({ visibility: "public" }),
   ]);
+
+  // ✅ Add isLiked and commentsCount to each reel
+  const reelsWithUserData = await Promise.all(
+    reels.map(async (reel) => {
+      const [isLiked, commentsCount] = await Promise.all([
+        reel.likes?.includes(userId.toString()),
+        ReelComment.countDocuments({ reel: reel._id }),
+      ]);
+      
+      return {
+        ...reel,
+        isLiked: !!isLiked,
+        likesCount: reel.likes?.length || 0,
+        commentsCount,
+        sharesCount: reel.sharesCount || 0,
+      };
+    })
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Reels fetched successfully",
     data: {
-      items: reels,
+      items: reelsWithUserData,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -148,39 +187,195 @@ export const getAllReels = catchAsync(async (req, res) => {
     },
   });
 });
-
 
 /**
  * Get single reel by id
  */
 export const getReelById = catchAsync(async (req, res) => {
   const { id } = req.params;
+  const userId = req.user._id;
 
-  const reel = await Reel.findById(id).populate(
-    "author",
-    "fullName avatar role"
-  );
+  const reel = await Reel.findById(id)
+    .populate("author", "fullName avatar role specialty")
+    .lean();
 
   if (!reel) {
     throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
   }
 
+  // প্রাইভেট রিল শুধু ওনার/অ্যাডমিন দেখতে পারবে
+  if (reel.visibility === "private") {
+    const isOwner = String(reel.author._id) === String(userId);
+    const isAdmin = req.user.role === "admin";
+    if (!isOwner && !isAdmin) {
+      throw new AppError(httpStatus.FORBIDDEN, "This reel is private");
+    }
+  }
+
+  // ✅ Add user-specific data
+  const [isLiked, commentsCount] = await Promise.all([
+    reel.likes?.includes(userId.toString()),
+    ReelComment.countDocuments({ reel: reel._id }),
+  ]);
+
+  const reelWithUserData = {
+    ...reel,
+    isLiked: !!isLiked,
+    likesCount: reel.likes?.length || 0,
+    commentsCount,
+    sharesCount: reel.sharesCount || 0,
+  };
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Reel fetched successfully",
-    data: reel,
+    data: reelWithUserData,
+  });
+});
+
+/**
+ * Toggle like on a reel
+ */
+export const toggleLikeReel = catchAsync(async (req, res) => {
+  const { id } = req.params; // reel id
+  const userId = req.user._id;
+
+  const reel = await Reel.findById(id);
+  if (!reel) {
+    throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
+  }
+
+  const alreadyLiked = reel.likes?.includes(userId.toString());
+
+  if (alreadyLiked) {
+    // Unlike
+    reel.likes = reel.likes.filter((likeUserId) => !likeUserId.equals(userId));
+  } else {
+    // Like
+    if (!reel.likes) reel.likes = [];
+    reel.likes.push(userId);
+  }
+
+  await reel.save({ validateBeforeSave: false });
+
+  const populated = await reel.populate("author", "fullName avatar role specialty");
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: alreadyLiked ? "Reel unliked" : "Reel liked",
+    data: {
+      reel: populated,
+      likesCount: reel.likes?.length || 0,
+      isLiked: !alreadyLiked,
+    },
+  });
+});
+
+/**
+ * Get comments for a reel
+ */
+export const getReelComments = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { page = 1, limit = 50 } = req.query;
+
+  const pageNum = Number(page) || 1;
+  const limitNum = Number(limit) || 50;
+
+  const reel = await Reel.findById(id);
+  if (!reel) {
+    throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
+  }
+
+  const [comments, total] = await Promise.all([
+    ReelComment.find({ reel: id })
+      .sort({ createdAt: -1 })
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum)
+      .populate("author", "fullName avatar role specialty")
+      .lean(),
+    ReelComment.countDocuments({ reel: id }),
+  ]);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Reel comments fetched successfully",
+    data: {
+      items: comments,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+      },
+    },
+  });
+});
+
+/**
+ * Add comment to a reel
+ */
+export const addReelComment = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+  const userId = req.user._id;
+
+  if (!content || content.trim().length === 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Comment content is required");
+  }
+
+  const reel = await Reel.findById(id);
+  if (!reel) {
+    throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
+  }
+
+  const comment = await ReelComment.create({
+    reel: id,
+    author: userId,
+    content: content.trim(),
+  });
+
+  const populated = await comment.populate("author", "fullName avatar role specialty");
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: "Comment added successfully",
+    data: populated,
+  });
+});
+
+/**
+ * Share reel (increment share count)
+ */
+export const shareReel = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const reel = await Reel.findById(id);
+  if (!reel) {
+    throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
+  }
+
+  // Increment sharesCount
+  if (!reel.sharesCount) reel.sharesCount = 0;
+  reel.sharesCount += 1;
+  
+  await reel.save({ validateBeforeSave: false });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Reel shared successfully",
+    data: {
+      sharesCount: reel.sharesCount,
+    },
   });
 });
 
 /**
  * Update reel (caption, visibility, and optionally replace video/thumbnail)
  * Only author or admin
- * form-data:
- *  - caption (optional)
- *  - visibility (optional)
- *  - video (optional)     -> replaces old video
- *  - thumbnail (optional) -> replaces old thumbnail
  */
 export const updateReel = catchAsync(async (req, res) => {
   const { id } = req.params;
@@ -210,7 +405,6 @@ export const updateReel = catchAsync(async (req, res) => {
   const videoFile = req.files?.video?.[0];
   const thumbnailFile = req.files?.thumbnail?.[0];
 
-  // handle video replacement
   if (videoFile) {
     if (reel.video?.public_id) {
       await deleteFromCloudinary(reel.video.public_id).catch(() => {});
@@ -233,7 +427,6 @@ export const updateReel = catchAsync(async (req, res) => {
     };
   }
 
-  // handle thumbnail replacement
   if (thumbnailFile) {
     if (reel.thumbnail?.public_id) {
       await deleteFromCloudinary(reel.thumbnail.public_id).catch(() => {});
@@ -257,7 +450,7 @@ export const updateReel = catchAsync(async (req, res) => {
 
   await reel.save();
 
-  const populated = await reel.populate("author", "fullName avatar role");
+  const populated = await reel.populate("author", "fullName avatar role specialty");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -294,6 +487,9 @@ export const deleteReel = catchAsync(async (req, res) => {
   if (reel.thumbnail?.public_id) {
     await deleteFromCloudinary(reel.thumbnail.public_id).catch(() => {});
   }
+
+  // ✅ Delete all comments associated with this reel
+  await ReelComment.deleteMany({ reel: id });
 
   await reel.deleteOne();
 

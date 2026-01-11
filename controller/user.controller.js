@@ -6,8 +6,8 @@ import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
-import { DoctorReview } from "../model/doctorReview.model.js";   // make sure this model exists
-import { createNotification } from "../utils/notify.js";         // make sure this helper exists
+import { DoctorReview } from "../model/doctorReview.model.js";
+import { createNotification } from "../utils/notify.js";
 
 /**
  * Helpers
@@ -164,7 +164,7 @@ export const getProfile = catchAsync(async (req, res) => {
  * For doctors we also add ratingSummary (avgRating + totalReviews)
  */
 export const getUsersByRole = catchAsync(async (req, res) => {
-  const { role } = req.params; // "patient" | "doctor" | "admin"
+  const { role } = req.params;
 
   const allowedRoles = ["patient", "doctor", "admin"];
   if (!allowedRoles.includes(role)) {
@@ -175,7 +175,6 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     "-password -refreshToken -verificationInfo -password_reset_token"
   ).lean();
 
-  // If not doctor, just return
   if (role !== "doctor") {
     return sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -185,7 +184,6 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     });
   }
 
-  // For doctors, compute ratingSummary from DoctorReview
   const doctorIds = users.map((u) => u._id);
   if (doctorIds.length) {
     const stats = await DoctorReview.aggregate([
@@ -252,7 +250,6 @@ export const getUserDetails = catchAsync(async (req, res) => {
   let recentReviews = [];
 
   if (user.role === "doctor") {
-    // rating summary
     const stats = await DoctorReview.aggregate([
       {
         $match: { doctor: new mongoose.Types.ObjectId(id) },
@@ -273,7 +270,6 @@ export const getUserDetails = catchAsync(async (req, res) => {
       };
     }
 
-    // latest 5 reviews
     recentReviews = await DoctorReview.find({ doctor: id })
       .sort({ createdAt: -1 })
       .limit(5)
@@ -294,7 +290,7 @@ export const getUserDetails = catchAsync(async (req, res) => {
 });
 
 /**
- * Update current user profile
+ * ✅ UPDATED: Update current user profile with Base64 Image Support
  */
 export const updateProfile = catchAsync(async (req, res) => {
   const {
@@ -308,8 +304,8 @@ export const updateProfile = catchAsync(async (req, res) => {
     country,
     language,
     experienceYears,
-
-    // doctor profile fields
+    profileImage,
+    address,
     specialty,
     specialties,
     degrees,
@@ -319,16 +315,26 @@ export const updateProfile = catchAsync(async (req, res) => {
     medicalLicenseNumber,
   } = req.body;
 
+  console.log('📝 ========== Update Profile Request ==========');
+  console.log('   - fullName:', fullName);
+  console.log('   - phone:', phone);
+  console.log('   - address:', address);
+  console.log('   - profileImage:', profileImage ? 'Yes (base64)' : 'No');
+  console.log('================================================');
+
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
   if (fullName !== undefined) user.fullName = String(fullName).trim();
   if (username !== undefined) user.username = String(username).trim();
   if (phone !== undefined) user.phone = String(phone).trim();
-
   if (bio !== undefined) user.bio = String(bio).trim();
   if (gender !== undefined) user.gender = gender;
   if (dob !== undefined) user.dob = dob;
+  if (address !== undefined) {
+    user.address = String(address).trim();
+    console.log('✅ Address updated to:', user.address);
+  }
 
   if (experienceYears !== undefined) {
     const exp = asNumber(experienceYears);
@@ -359,9 +365,55 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (country !== undefined) user.country = String(country).trim();
   if (language !== undefined) user.language = String(language).trim();
 
-  // only doctors can update doctor fields
-  const isDoctor = user.role === "doctor";
+  if (profileImage && typeof profileImage === 'string' && profileImage.startsWith('data:image')) {
+    try {
+      console.log('📸 Processing base64 image from Flutter...');
+      
+      const oldPublicId = user?.avatar?.public_id;
+      if (oldPublicId) {
+        console.log('🗑️ Deleting old image:', oldPublicId);
+        await deleteFromCloudinary(oldPublicId).catch(() => {});
+      }
 
+      const base64Data = profileImage.split(',')[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      console.log('☁️ Uploading to Cloudinary...');
+
+      const upload = await uploadOnCloudinary(buffer, {
+        folder: "docmobi/users",
+        resource_type: "image",
+      });
+
+      user.avatar = { 
+        public_id: upload.public_id, 
+        url: upload.secure_url 
+      };
+
+      console.log('✅ Image uploaded successfully:', upload.secure_url);
+    } catch (error) {
+      console.error('❌ Image upload error:', error);
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Failed to upload profile image"
+      );
+    }
+  }
+
+  if (req.file?.buffer) {
+    console.log('📸 Processing file from multer...');
+    const oldPublicId = user?.avatar?.public_id;
+    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => {});
+
+    const upload = await uploadOnCloudinary(req.file.buffer, {
+      folder: "docmobi/users",
+      resource_type: "image",
+    });
+
+    user.avatar = { public_id: upload.public_id, url: upload.secure_url };
+  }
+
+  const isDoctor = user.role === "doctor";
   const doctorPayloadTouched =
     specialty !== undefined ||
     specialties !== undefined ||
@@ -411,24 +463,17 @@ export const updateProfile = catchAsync(async (req, res) => {
     }
   }
 
-  // avatar upload
-  if (req.file?.buffer) {
-    const oldPublicId = user?.avatar?.public_id;
-    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => {});
-
-    const upload = await uploadOnCloudinary(req.file.buffer, {
-      folder: "docmobi/users",
-      resource_type: "image",
-    });
-
-    user.avatar = { public_id: upload.public_id, url: upload.secure_url };
-  }
-
   await user.save();
+  console.log('💾 User saved successfully');
 
   const safeUser = await User.findById(user._id).select(
     "-password -refreshToken -verificationInfo -password_reset_token"
   );
+
+  console.log('📤 Sending response with:');
+  console.log('   - fullName:', safeUser.fullName);
+  console.log('   - address:', safeUser.address);
+  console.log('   - avatar:', safeUser.avatar?.url || 'No avatar');
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -471,6 +516,9 @@ export const changePassword = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Get my dependents
+ */
 export const getMyDependents = catchAsync(async (req, res) => {
   const user = await User.findById(req.user._id).select("dependents");
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
@@ -483,6 +531,9 @@ export const getMyDependents = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Add dependent
+ */
 export const addDependent = catchAsync(async (req, res) => {
   const {
     fullName,
@@ -549,6 +600,9 @@ export const addDependent = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Update dependent
+ */
 export const updateDependent = catchAsync(async (req, res) => {
   const { dependentId } = req.params;
   const {
@@ -627,6 +681,9 @@ export const updateDependent = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Delete dependent
+ */
 export const deleteDependent = catchAsync(async (req, res) => {
   const { dependentId } = req.params;
 
@@ -636,6 +693,21 @@ export const deleteDependent = catchAsync(async (req, res) => {
   const dependent = user.dependents.id(dependentId);
   if (!dependent) {
     throw new AppError(httpStatus.NOT_FOUND, "Dependent not found");
+  }
+
+  const { Appointment } = await import("../model/appointment.model.js");
+
+  const activeAppointments = await Appointment.find({
+    patient: user._id,
+    "bookedFor.dependentId": dependentId,
+    status: { $in: ["pending", "accepted"] },
+  });
+
+  if (activeAppointments.length > 0) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `Cannot delete dependent. They have ${activeAppointments.length} active appointment(s). Please cancel those appointments first.`
+    );
   }
 
   dependent.deleteOne();
@@ -650,9 +722,7 @@ export const deleteDependent = catchAsync(async (req, res) => {
 });
 
 /**
- * Admin: update doctor approvalStatus (pending | approved | rejected)
- * And notify the doctor.
- * Route example: PATCH /user/doctor/:id/approval
+ * Admin: update doctor approvalStatus
  */
 export const updateDoctorApprovalStatus = catchAsync(async (req, res) => {
   const adminId = req.user._id;
@@ -665,7 +735,7 @@ export const updateDoctorApprovalStatus = catchAsync(async (req, res) => {
     );
   }
 
-  const { id } = req.params; // doctor id
+  const { id } = req.params;
   const { approvalStatus } = req.body;
 
   if (!["pending", "approved", "rejected"].includes(approvalStatus)) {

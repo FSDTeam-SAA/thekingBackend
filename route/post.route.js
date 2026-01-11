@@ -15,21 +15,21 @@ import {
 import { protect } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
 
-const  router = express.Router();
+const router = express.Router();
 
 // Create post (with media)
 router.post(
   "/",
   protect,
-  upload.array("media", 10), // Photo / video / pdf / etc.
+  upload.array("media", 10),
   createPost
 );
 
-// Get posts (feed / by author)
+// Get current user posts
 router.get("/", protect, getPosts);
 
-// all posts – only doctor can access
-router.get("/all-posts", getAllPosts);
+// ✅ NEW: Get ALL posts from ALL doctors (public feed)
+router.get("/all-posts", protect, getAllPosts);
 
 // Get single post
 router.get("/:id", protect, getPostById);
@@ -45,13 +45,13 @@ router.put(
 // Delete post
 router.delete("/:id", protect, deletePost);
 
-// likes
+// Likes
 router.post("/:id/like", protect, toggleLikePost);
-router.get("/:id/likes", getPostLikes);
+router.get("/:id/likes", protect, getPostLikes);
 
-// comments
+// Comments
 router.post("/:id/comments", protect, addPostComment);
-router.get("/:id/comments", getPostComments);
+router.get("/:id/comments", protect, getPostComments);
 router.delete("/:id/comments/:commentId", protect, deletePostComment);
 
 export default router;

@@ -12,22 +12,18 @@ import catchAsync from "../utils/catchAsync.js";
 
 /**
  * Create a post
- * form-data:
- *  - content (text)
- *  - visibility (optional: public|private)
- *  - media[] (files: image / video / pdf / etc.)
  */
 export const createPost = catchAsync(async (req, res) => {
   const userId = req.user._id;
   const { content, visibility } = req.body;
 
-  const files = req.files || []; // using upload.array("media")
+  const files = req.files || [];
 
   const media = [];
   for (const file of files) {
     const upload = await uploadOnCloudinary(file.buffer, {
       folder: "docmobi/posts",
-      resource_type: "auto", // supports image, video, pdf, etc.
+      resource_type: "auto",
     });
 
     media.push({
@@ -48,7 +44,7 @@ export const createPost = catchAsync(async (req, res) => {
     media,
   });
 
-  const populated = await post.populate("author", "fullName avatar role");
+  const populated = await post.populate("author", "fullName avatar role specialty");
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -59,67 +55,88 @@ export const createPost = catchAsync(async (req, res) => {
 });
 
 /**
- * Get posts of current doctor (profile)
- * router.get("/", protect, getPosts)
- * - only role "doctor" allowed
- * query: page, limit
+ * ✅ FIXED: Get ALL posts (public feed for doctors)
+ * - Doctors can see all doctor posts
+ * - Includes isLiked field for current user
  */
-export const getPosts = catchAsync(async (req, res) => {
-  const { page = 1, limit = 10 } = req.query;
-
-  const userId = req.user._id;
-  const role = req.user.role;
-
-  // only doctor can see his own posts here
-  if (role !== "doctor") {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      "Only doctors can view their own posts"
-    );
-  }
-
-  const pageNum = Number(page) || 1;
-  const limitNum = Number(limit) || 10;
-
-  const [posts, total] = await Promise.all([
-    Post.find({ author: userId })
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .populate("author", "fullName avatar role")
-      .lean(),
-    Post.countDocuments({ author: userId }),
-  ]);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Posts fetched successfully",
-    data: {
-      items: posts,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-      },
-    },
-  });
-});
-
-/// get all posts with pagination (e.g. public feed / admin)
 export const getAllPosts = catchAsync(async (req, res) => {
-  const { page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 20 } = req.query;
   const pageNum = Number(page) || 1;
-  const limitNum = Number(limit) || 10;
+  const limitNum = Number(limit) || 20;
+  const userId = req.user._id;
 
+  // ✅ Only show posts from doctors + public visibility
   const [posts, total] = await Promise.all([
-    Post.find()
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .populate("author", "fullName avatar role")
-      .lean(),
-    Post.countDocuments(),
+    Post.aggregate([
+      {
+        $lookup: {
+          from: "users",
+          localField: "author",
+          foreignField: "_id",
+          as: "authorData",
+        },
+      },
+      {
+        $unwind: "$authorData",
+      },
+      {
+        $match: {
+          "authorData.role": "doctor",
+          visibility: "public",
+        },
+      },
+      {
+        $lookup: {
+          from: "postlikes",
+          let: { postId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$post", "$$postId"] },
+                    { $eq: ["$user", userId] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "userLike",
+        },
+      },
+      {
+        $addFields: {
+          isLiked: { $gt: [{ $size: "$userLike" }, 0] },
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          content: 1,
+          media: 1,
+          visibility: 1,
+          likesCount: 1,
+          commentsCount: 1,
+          sharesCount: { $ifNull: ["$sharesCount", 0] },
+          isLiked: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          author: {
+            _id: "$authorData._id",
+            fullName: "$authorData.fullName",
+            avatar: "$authorData.avatar",
+            role: "$authorData.role",
+            specialty: "$authorData.specialty",
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: (pageNum - 1) * limitNum },
+      { $limit: limitNum },
+    ]),
+    Post.countDocuments({
+      visibility: "public",
+    }),
   ]);
 
   sendResponse(res, {
@@ -142,13 +159,67 @@ export const getAllPosts = catchAsync(async (req, res) => {
  */
 export const getPostById = catchAsync(async (req, res) => {
   const { id } = req.params;
+  const userId = req.user._id;
 
-  const post = await Post.findById(id).populate(
-    "author",
-    "fullName avatar role"
-  );
+  const posts = await Post.aggregate([
+    { $match: { _id: mongoose.Types.ObjectId(id) } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "author",
+        foreignField: "_id",
+        as: "authorData",
+      },
+    },
+    { $unwind: "$authorData" },
+    {
+      $lookup: {
+        from: "postlikes",
+        let: { postId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$post", "$$postId"] },
+                  { $eq: ["$user", userId] },
+                ],
+              },
+            },
+          },
+        ],
+        as: "userLike",
+      },
+    },
+    {
+      $addFields: {
+        isLiked: { $gt: [{ $size: "$userLike" }, 0] },
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        content: 1,
+        media: 1,
+        visibility: 1,
+        likesCount: 1,
+        commentsCount: 1,
+        sharesCount: { $ifNull: ["$sharesCount", 0] },
+        isLiked: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        author: {
+          _id: "$authorData._id",
+          fullName: "$authorData.fullName",
+          avatar: "$authorData.avatar",
+          role: "$authorData.role",
+          specialty: "$authorData.specialty",
+        },
+      },
+    },
+  ]);
 
-  if (!post) {
+  if (!posts || posts.length === 0) {
     throw new AppError(httpStatus.NOT_FOUND, "Post not found");
   }
 
@@ -156,17 +227,100 @@ export const getPostById = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Post fetched successfully",
-    data: post,
+    data: posts[0],
   });
 });
 
 /**
- * Update post (content + optionally replace media)
- * Only author or admin
- * form-data:
- *  - content (optional)
- *  - visibility (optional)
- *  - media[] (optional new files – if provided, old media are deleted)
+ * Get posts of current user
+ */
+export const getPosts = catchAsync(async (req, res) => {
+  const { page = 1, limit = 10 } = req.query;
+  const userId = req.user._id;
+  const pageNum = Number(page) || 1;
+  const limitNum = Number(limit) || 10;
+
+  const [posts, total] = await Promise.all([
+    Post.aggregate([
+      { $match: { author: userId } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "author",
+          foreignField: "_id",
+          as: "authorData",
+        },
+      },
+      { $unwind: "$authorData" },
+      {
+        $lookup: {
+          from: "postlikes",
+          let: { postId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$post", "$$postId"] },
+                    { $eq: ["$user", userId] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "userLike",
+        },
+      },
+      {
+        $addFields: {
+          isLiked: { $gt: [{ $size: "$userLike" }, 0] },
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          content: 1,
+          media: 1,
+          visibility: 1,
+          likesCount: 1,
+          commentsCount: 1,
+          sharesCount: { $ifNull: ["$sharesCount", 0] },
+          isLiked: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          author: {
+            _id: "$authorData._id",
+            fullName: "$authorData.fullName",
+            avatar: "$authorData.avatar",
+            role: "$authorData.role",
+            specialty: "$authorData.specialty",
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: (pageNum - 1) * limitNum },
+      { $limit: limitNum },
+    ]),
+    Post.countDocuments({ author: userId }),
+  ]);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Posts fetched successfully",
+    data: {
+      items: posts,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+      },
+    },
+  });
+});
+
+/**
+ * Update post
  */
 export const updatePost = catchAsync(async (req, res) => {
   const { id } = req.params;
@@ -194,7 +348,6 @@ export const updatePost = catchAsync(async (req, res) => {
 
   const files = req.files || [];
   if (files.length > 0) {
-    // delete old media from cloudinary
     for (const m of post.media) {
       if (m.public_id) {
         await deleteFromCloudinary(m.public_id).catch(() => {});
@@ -224,7 +377,7 @@ export const updatePost = catchAsync(async (req, res) => {
 
   await post.save();
 
-  const populated = await post.populate("author", "fullName avatar role");
+  const populated = await post.populate("author", "fullName avatar role specialty");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -236,7 +389,6 @@ export const updatePost = catchAsync(async (req, res) => {
 
 /**
  * Delete post
- * Only author or admin
  */
 export const deletePost = catchAsync(async (req, res) => {
   const { id } = req.params;
@@ -253,7 +405,6 @@ export const deletePost = catchAsync(async (req, res) => {
     );
   }
 
-  // delete media files
   for (const m of post.media) {
     if (m.public_id) {
       await deleteFromCloudinary(m.public_id).catch(() => {});
@@ -272,7 +423,6 @@ export const deletePost = catchAsync(async (req, res) => {
 
 /**
  * Toggle like / unlike a post
- * POST /posts/:id/like
  */
 export const toggleLikePost = catchAsync(async (req, res) => {
   const userId = req.user._id;
@@ -287,12 +437,10 @@ export const toggleLikePost = catchAsync(async (req, res) => {
 
   let liked;
   if (existing) {
-    // unlike
     await existing.deleteOne();
     post.likesCount = Math.max(0, (post.likesCount || 0) - 1);
     liked = false;
   } else {
-    // like
     await PostLike.create({ post: postId, user: userId });
     post.likesCount = (post.likesCount || 0) + 1;
     liked = true;
@@ -313,7 +461,6 @@ export const toggleLikePost = catchAsync(async (req, res) => {
 
 /**
  * Get likes of a post
- * GET /posts/:id/likes?page=&limit=
  */
 export const getPostLikes = catchAsync(async (req, res) => {
   const { id: postId } = req.params;
@@ -349,8 +496,6 @@ export const getPostLikes = catchAsync(async (req, res) => {
 
 /**
  * Add comment to a post
- * POST /posts/:id/comments
- * body: { content }
  */
 export const addPostComment = catchAsync(async (req, res) => {
   const userId = req.user._id;
@@ -375,7 +520,6 @@ export const addPostComment = catchAsync(async (req, res) => {
     content: String(content).trim(),
   });
 
-  // increment comments count
   post.commentsCount = (post.commentsCount || 0) + 1;
   await post.save();
 
@@ -391,7 +535,6 @@ export const addPostComment = catchAsync(async (req, res) => {
 
 /**
  * Get comments of a post
- * GET /posts/:id/comments?page=&limit=
  */
 export const getPostComments = catchAsync(async (req, res) => {
   const { id: postId } = req.params;
@@ -427,8 +570,6 @@ export const getPostComments = catchAsync(async (req, res) => {
 
 /**
  * Delete a comment
- * DELETE /posts/:id/comments/:commentId
- * Only comment author or admin
  */
 export const deletePostComment = catchAsync(async (req, res) => {
   const userId = req.user._id;
@@ -451,7 +592,6 @@ export const deletePostComment = catchAsync(async (req, res) => {
 
   await comment.deleteOne();
 
-  // decrease commentsCount on post
   await Post.findByIdAndUpdate(postId, {
     $inc: { commentsCount: -1 },
   }).catch(() => {});

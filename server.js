@@ -30,16 +30,21 @@ app.use(
   })
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ✅ Increased payload limit for base64 images
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cookieParser());
 
 app.use("/public", express.static("public"));
 
-// Mount the main router
+// ✅ Request logger middleware (optional - for debugging)
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`);
+  next();
+});
+
 app.use("/api/v1", router);
 
-// Basic route for testing
 app.get("/", (req, res) => {
   res.send("Server is running...!!");
 });
@@ -47,31 +52,22 @@ app.get("/", (req, res) => {
 app.use(globalErrorHandler);
 app.use(notFound);
 
-/**
- * SOCKET.IO
- *  - joinChatRoom(userId): join personal room for chat/alerts
- *  - joinAlerts(): global alerts room
- *  - chat:typing / chat:stopTyping
- *  - call:* events: signaling for WebRTC video calls
- */
+// Socket.IO connection handling
 io.on("connection", (socket) => {
-  console.log("A client connected:", socket.id);
+  console.log("🔌 A client connected:", socket.id);
 
-  // each user joins a private room by their userId
   socket.on("joinChatRoom", (userId) => {
     if (userId) {
       socket.join(`chat_${userId}`);
-      console.log(`Client ${socket.id} joined user room: ${userId}`);
+      console.log(`👤 Client ${socket.id} joined user room: ${userId}`);
     }
   });
 
-  // optional: a global alerts room (for admin / system notifications)
   socket.on("joinAlerts", () => {
     socket.join("alerts");
-    console.log(`Client ${socket.id} joined alerts room`);
+    console.log(`🔔 Client ${socket.id} joined alerts room`);
   });
 
-  // ----- TYPING INDICATOR -----
   socket.on("chat:typing", ({ toUserId, chatId }) => {
     if (!toUserId) return;
     io.to(`chat_${toUserId}`).emit("chat:typing", { chatId });
@@ -82,8 +78,6 @@ io.on("connection", (socket) => {
     io.to(`chat_${toUserId}`).emit("chat:stopTyping", { chatId });
   });
 
-  // ----- VIDEO CALL SIGNALING -----
-  // someone presses the call button
   socket.on("call:request", ({ fromUserId, toUserId, chatId }) => {
     if (!toUserId) return;
     io.to(`chat_${toUserId}`).emit("call:incoming", {
@@ -92,7 +86,6 @@ io.on("connection", (socket) => {
     });
   });
 
-  // WebRTC offer/answer exchange
   socket.on("call:offer", ({ toUserId, chatId, offer }) => {
     if (!toUserId) return;
     io.to(`chat_${toUserId}`).emit("call:offer", { chatId, offer });
@@ -117,19 +110,34 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+    console.log("❌ Client disconnected:", socket.id);
   });
 });
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, async () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log("═════════════════════════════════════════");
+  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log("═════════════════════════════════════════");
 
   try {
     await mongoose.connect(process.env.MONGO_DB_URL);
-    console.log("MongoDB connected");
+    console.log("✅ MongoDB connected successfully");
+    console.log("═════════════════════════════════════════");
+    console.log("📋 Available Routes:");
+    console.log("   - /api/v1/auth");
+    console.log("   - /api/v1/user");
+    console.log("   - /api/v1/appointment");
+    console.log("   - /api/v1/posts          ✅ (plural)");
+    console.log("   - /api/v1/reels          ✅ (plural)");
+    console.log("   - /api/v1/chat");
+    console.log("   - /api/v1/notification");
+    console.log("   - /api/v1/doctor-review");
+    console.log("═════════════════════════════════════════");
   } catch (err) {
-    console.error("MongoDB connection error:", err);
+    console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   }
 });
+
+export default app;

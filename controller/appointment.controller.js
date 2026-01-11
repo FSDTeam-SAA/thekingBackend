@@ -7,7 +7,7 @@ import sendResponse from "../utils/sendResponse.js";
 import { uploadOnCloudinary } from "../utils/commonMethod.js";
 import { User } from "../model/user.model.js";
 import { Appointment } from "../model/appointment.model.js";
-import { createNotification } from "../utils/notify.js";   // 🔔 <– add this
+import { createNotification } from "../utils/notify.js";
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:MM
 
@@ -33,12 +33,15 @@ const parseJSONMaybe = (value) => {
   }
 };
 
+// controller/appointment.controller.js - createAppointment function
+// Replace the bookedFor section with this:
+
 export const createAppointment = catchAsync(async (req, res) => {
   const {
     doctorId,
-    appointmentType, // "physical" | "video"
-    date,            // "2025-12-04"
-    time,            // "10:30"
+    appointmentType,
+    date,
+    time,
     symptoms,
     bookedFor,
   } = req.body;
@@ -59,6 +62,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   const bookedForInput = parseJSONMaybe(bookedFor) || {};
   const typeRaw = String(bookedForInput?.type || "").trim().toLowerCase();
   let bookingScope = "self";
+  
   if (!typeRaw) {
     bookingScope = "self";
   } else if (["self", "me", "myself"].includes(typeRaw)) {
@@ -73,11 +77,19 @@ export const createAppointment = catchAsync(async (req, res) => {
   }
 
   const patientNameSnapshot = String(patient.fullName || "").trim();
+  
   let bookedForPayload =
     bookingScope === "self"
-      ? { type: "self", nameSnapshot: patientNameSnapshot }
+      ? { 
+          type: "self", 
+          dependentId: null,
+          dependentName: null,
+          relationship: null,
+          nameSnapshot: patientNameSnapshot 
+        }
       : null;
 
+  // ✅ UPDATED: If dependent, fetch full details including relationship
   if (bookingScope === "dependent") {
     const dependentId =
       bookedForInput?.dependentId ||
@@ -110,9 +122,12 @@ export const createAppointment = catchAsync(async (req, res) => {
       );
     }
 
+    // ✅ NEW: Include all dependent details
     bookedForPayload = {
       type: "dependent",
       dependentId: dependent._id,
+      dependentName: String(dependent.fullName || "").trim(),
+      relationship: dependent.relationship || null, // ✅ This is the category!
       nameSnapshot: String(dependent.fullName || "").trim(),
     };
   }
@@ -174,7 +189,7 @@ export const createAppointment = catchAsync(async (req, res) => {
     doctor: doctorId,
     appointmentDate,
     time,
-    status: { $in: ["pending", "approved"] }, // NOTE: adjust if you don't use "approved"
+    status: { $in: ["pending", "accepted"] },
   });
 
   if (conflict) {
@@ -184,11 +199,11 @@ export const createAppointment = catchAsync(async (req, res) => {
     );
   }
 
-  // 7) create appointment
+  // 7) create appointment with proper bookedFor
   const appointment = await Appointment.create({
     doctor: doctorId,
     patient: patientId,
-    bookedFor: bookedForPayload,
+    bookedFor: bookedForPayload, // ✅ Now includes relationship
     appointmentType: type,
     appointmentDate,
     time,
@@ -197,10 +212,10 @@ export const createAppointment = catchAsync(async (req, res) => {
     paymentScreenshot,
   });
 
-  // 🔔 3) NOTIFICATION – patient booked appointment → notify doctor
+  // 🔔 Notification – patient booked appointment → notify doctor
   await createNotification({
-    userId: doctor._id,             // doctor receives
-    fromUserId: patient._id,        // patient triggered
+    userId: doctor._id,
+    fromUserId: patient._id,
     type: "appointment_created",
     title: "New appointment request",
     content: `${patient.fullName} requested an appointment on ${date} at ${time}.`,
@@ -222,8 +237,6 @@ export const createAppointment = catchAsync(async (req, res) => {
     data: appointment,
   });
 });
-
-/// get available time appointments
 export const getAvailableAppointments = catchAsync(async (req, res) => {
   const { doctorId, date } = req.body;
 
@@ -234,14 +247,12 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
     );
   }
 
-  // 1) validate doctor
   const doctor = await User.findById(doctorId).select("role weeklySchedule");
   if (!doctor || doctor.role !== "doctor") {
     throw new AppError(httpStatus.NOT_FOUND, "Doctor not found");
   }
 
-  // 2) parse date & convert to day name ("monday".."sunday")
-  const dateObj = new Date(date); // expect "YYYY-MM-DD"
+  const dateObj = new Date(date);
   if (Number.isNaN(dateObj.getTime())) {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid date format");
   }
@@ -255,9 +266,8 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
     "friday",
     "saturday",
   ];
-  const dayName = dayNames[dateObj.getDay()]; // 0-6 -> sunday-saturday
+  const dayName = dayNames[dateObj.getDay()];
 
-  // 3) get this day's schedule from doctor's weeklySchedule
   const weeklySchedule = doctor.weeklySchedule || [];
   const daySchedule = weeklySchedule.find(
     (d) => d.day === dayName && d.isActive
@@ -276,7 +286,6 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
     });
   }
 
-  // 4) find all booked appointments for this doctor on that date
   const startOfDay = new Date(dateObj);
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(startOfDay);
@@ -285,7 +294,7 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
   const existingAppointments = await Appointment.find({
     doctor: doctorId,
     appointmentDate: { $gte: startOfDay, $lt: endOfDay },
-    status: { $in: ["pending", "approved"] }, // adjust if needed
+    status: { $in: ["pending", "accepted"] },
   }).select("time");
 
   const bookedTimesSet = new Set(existingAppointments.map((a) => a.time));
@@ -310,10 +319,11 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
   });
 });
 
-// GET all appointments for current user (patient/doctor/admin)
+// getMyAppointments function - এটা already ভালো আছে, শুধু একটু clean করুন
+
 export const getMyAppointments = catchAsync(async (req, res) => {
   const userId = req.user._id;
-  const role = req.user.role; // "patient" | "doctor" | "admin"
+  const role = req.user.role;
 
   const filter = {};
   const { status, doctorId, patientId } = req.query;
@@ -333,10 +343,37 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     filter.status = status;
   }
 
-  const appointments = await Appointment.find(filter)
+  let appointments = await Appointment.find(filter)
     .sort({ appointmentDate: 1, time: 1 })
     .populate("doctor", "fullName role specialty avatar fees")
-    .populate("patient", "fullName role avatar");
+    .populate("patient", "fullName role avatar dependents")
+    .lean();
+
+  // ✅ IMPROVED: Enrich appointments with dependent info
+  appointments = appointments.map((appt) => {
+    // If already has relationship from DB, no need to enrich
+    if (appt.bookedFor?.relationship) {
+      return appt;
+    }
+
+    // Otherwise, try to get it from patient's dependents
+    if (appt.bookedFor?.type === "dependent" && appt.bookedFor?.dependentId) {
+      const patient = appt.patient;
+      
+      if (patient?.dependents && Array.isArray(patient.dependents)) {
+        const dependent = patient.dependents.find(
+          (dep) => String(dep._id) === String(appt.bookedFor.dependentId)
+        );
+
+        if (dependent) {
+          appt.bookedFor.dependentName = dependent.fullName;
+          appt.bookedFor.relationship = dependent.relationship; // ✅
+        }
+      }
+    }
+
+    return appt;
+  });
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -346,13 +383,15 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   });
 });
 
+
+
+//  FIXED: updateAppointmentStatus - Now allows patient to cancel
 export const updateAppointmentStatus = catchAsync(async (req, res) => {
-  const { id } = req.params;                 // appointment id
+  const { id } = req.params;
   const { status, patient, price } = req.body;
   const userId = req.user._id;
-  const role = req.user.role;                // "patient" | "doctor" | "admin"
+  const role = req.user.role;
 
-  // ✅ now we use "accepted" instead of "confirmed"
   const allowedStatuses = ["pending", "accepted", "completed", "cancelled"];
 
   if (!status || !allowedStatuses.includes(status)) {
@@ -362,7 +401,6 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     );
   }
 
-  // 1) find appointment
   const appointment = await Appointment.findById(id)
     .populate("doctor", "fullName fees role")
     .populate("patient", "fullName role");
@@ -371,21 +409,44 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Appointment not found");
   }
 
-  // 2) only this doctor OR admin can update
   const isDoctorOwner =
     role === "doctor" &&
     String(appointment.doctor?._id) === String(userId);
 
+  const isPatientOwner =
+    role === "patient" &&
+    String(appointment.patient?._id) === String(userId);
+
   const isAdmin = role === "admin";
 
-  if (!isDoctorOwner && !isAdmin) {
+  // ✅ NEW: Permission logic with patient support
+  const canUpdate = isDoctorOwner || isAdmin || isPatientOwner;
+
+  if (!canUpdate) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only the doctor or admin can update appointment status"
+      "You don't have permission to update this appointment"
     );
   }
 
-  // 3) status transitions
+  // ✅ NEW: Patient can only cancel their own appointments
+  if (role === "patient" && status !== "cancelled") {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Patients can only cancel appointments. Other status changes require doctor approval."
+    );
+  }
+
+  // ✅ NEW: Check if patient is trying to cancel someone else's appointment
+  if (role === "patient" && status === "cancelled") {
+    if (String(appointment.patient?._id) !== String(userId)) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        "You can only cancel your own appointments"
+      );
+    }
+  }
+
   const current = appointment.status;
   const transitions = {
     pending: ["accepted", "cancelled"],
@@ -401,8 +462,15 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     );
   }
 
-  // 4) Extra validation ONLY when marking as completed
+  // ✅ Validation for "completed" status (only doctor/admin)
   if (status === "completed") {
+    if (role === "patient") {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        "Only doctors can mark appointments as completed"
+      );
+    }
+
     if (!patient || !String(patient).trim()) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -440,47 +508,59 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
         "Paid amount is less than the doctor's fees"
       );
     }
-//==============================================================================================================extra addddddddddddddddddddd
-    appointment.paymentVerified = true;
 
-    // appointment.paidAmount = paidAmount; // uncomment if you store it
+    appointment.paymentVerified = true;
   }
 
-  // 5) save new status
   appointment.status = status;
   await appointment.save();
 
-  // 6) NOTIFICATION to patient about status change
   const patientId = appointment.patient._id;
   const doctorId = appointment.doctor._id;
   const doctorName = appointment.doctor.fullName;
   const patientName = appointment.patient.fullName;
 
-  let content = `Your appointment with ${doctorName} is now ${status}.`;
+  // ✅ Send notification based on who made the change
+  let content = "";
+  let notifyUserId = null;
+  let fromUserId = userId;
 
-  if (status === "accepted") {
+  if (status === "cancelled") {
+    if (role === "patient") {
+      // Patient cancelled - notify doctor
+      content = `${patientName} has cancelled their appointment.`;
+      notifyUserId = doctorId;
+    } else {
+      // Doctor/admin cancelled - notify patient
+      content = `Your appointment with ${doctorName} has been cancelled.`;
+      notifyUserId = patientId;
+    }
+  } else if (status === "accepted") {
     content = `${doctorName} has accepted your appointment request.`;
-  } else if (status === "cancelled") {
-    content = `Your appointment with ${doctorName} has been cancelled.`;
+    notifyUserId = patientId;
   } else if (status === "completed") {
     content = `Your appointment with ${doctorName} has been completed.`;
+    notifyUserId = patientId;
   }
 
-  await createNotification({
-    userId: patientId,
-    fromUserId: doctorId,
-    type: "appointment_status_change",
-    title: "Appointment status updated",
-    content,
-    appointmentId: appointment._id,
-    meta: {
-      status,
-      price,
-      doctorId,
-      doctorName,
-      patientName,
-    },
-  });
+  if (notifyUserId) {
+    await createNotification({
+      userId: notifyUserId,
+      fromUserId: fromUserId,
+      type: "appointment_status_change",
+      title: "Appointment status updated",
+      content,
+      appointmentId: appointment._id,
+      meta: {
+        status,
+        price,
+        doctorId,
+        doctorName,
+        patientName,
+        updatedBy: role,
+      },
+    });
+  }
 
   let sessionInfo = null;
 
@@ -505,7 +585,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   });
 });
 
-// helper: date range for daily / weekly / monthly
+
 const getDateRangeForView = (view) => {
   const now = new Date();
   now.setMilliseconds(0);
@@ -516,11 +596,11 @@ const getDateRangeForView = (view) => {
   if (view === "daily") {
     start = new Date(now);
     start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999); // আজকের দিনের শেষ পর্যন্ত ===================================================new addddddd
+    end.setHours(23, 59, 59, 999);
   } else if (view === "weekly") {
     start = new Date(now);
     start.setHours(0, 0, 0, 0);
-     end.setHours(23, 59, 59, 999); // আজকের দিনের শেষ পর্যন্ত ===================================================new addddddd
+    end.setHours(23, 59, 59, 999);
     start.setDate(start.getDate() - 6);
   } else if (view === "monthly") {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -529,9 +609,6 @@ const getDateRangeForView = (view) => {
   return { start, end };
 };
 
-/**
- * GET /appointment/earnings/overview?view=daily|weekly|monthly
- */
 export const getEarningsOverview = catchAsync(async (req, res) => {
   const role = req.user.role;
   const userId = req.user._id;

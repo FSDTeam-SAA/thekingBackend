@@ -6,6 +6,10 @@ import {
   updateReel,
   deleteReel,
   getAllReels,
+  toggleLikeReel,
+  getReelComments,
+  addReelComment,
+  shareReel,
 } from "../controller/reel.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -27,7 +31,7 @@ router.post(
 router.get("/", protect, getReels);
 
 // all reels – only doctor can access
-router.get("/all-reels", getAllReels);
+router.get("/all-reels", protect, getAllReels);
 
 // Get single reel
 router.get("/:id", protect, getReelById);
@@ -45,5 +49,17 @@ router.put(
 
 // Delete reel
 router.delete("/:id", protect, deleteReel);
+
+// ✅ Toggle like
+router.post("/:id/like", protect, toggleLikeReel);
+
+// ✅ Get reel comments
+router.get("/:id/comments", protect, getReelComments);
+
+// ✅ Add reel comment
+router.post("/:id/comments", protect, addReelComment);
+
+// ✅ Share reel
+router.post("/:id/share", protect, shareReel);
 
 export default router;

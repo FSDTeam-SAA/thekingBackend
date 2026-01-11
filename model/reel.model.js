@@ -4,7 +4,6 @@ const videoSchema = new Schema(
   {
     public_id: { type: String, required: true },
     url: { type: String, required: true },
-
     resourceType: { type: String, default: "video" }, // cloudinary resource_type
     format: { type: String },
     duration: { type: Number }, // seconds (if Cloudinary returns it)
@@ -28,12 +27,14 @@ const imageSchema = new Schema(
   { _id: false }
 );
 
+// ✅ FIRST: Define the schema
 const reelSchema = new Schema(
   {
     author: {
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
     caption: {
@@ -55,12 +56,51 @@ const reelSchema = new Schema(
       type: String,
       enum: ["public", "private"],
       default: "public",
+      index: true,
     },
 
-    likesCount: { type: Number, default: 0 },
-    viewsCount: { type: Number, default: 0 },
+    likes: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
+    sharesCount: { 
+      type: Number, 
+      default: 0 
+    },
+    
+    viewsCount: { 
+      type: Number, 
+      default: 0 
+    },
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+  }
 );
 
+// ✅ THEN: Add virtual fields AFTER schema is defined
+reelSchema.virtual('commentsCount', {
+  ref: 'ReelComment',
+  localField: '_id',
+  foreignField: 'reel',
+  count: true,
+});
+
+// ✅ Add virtual for likes count
+reelSchema.virtual('likesCount').get(function() {
+  return this.likes?.length || 0;
+});
+
+// ✅ Enable virtuals in JSON
+reelSchema.set('toJSON', { virtuals: true });
+reelSchema.set('toObject', { virtuals: true });
+
+// ✅ Add indexes for better performance
+reelSchema.index({ createdAt: -1 });
+reelSchema.index({ author: 1, createdAt: -1 });
+
+// ✅ FINALLY: Export the model
 export const Reel = mongoose.model("Reel", reelSchema);

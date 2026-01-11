@@ -23,7 +23,6 @@ router.get("/me/dependents", protect, getMyDependents);
 router.post("/me/dependents", protect, addDependent);
 router.patch("/me/dependents/:dependentId", protect, updateDependent);
 router.delete("/me/dependents/:dependentId", protect, deleteDependent);
-
 router.get("/role/:role", getUsersByRole);
 router.get("/:id", protect, getUserDetails);
 router.patch("/doctor/:id/approval", protect, updateDoctorApprovalStatus);

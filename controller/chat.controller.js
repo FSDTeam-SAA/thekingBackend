@@ -6,12 +6,11 @@ import { Chat } from "../model/chat.model.js";
 import { Message } from "../model/message.model.js";
 import { User } from "../model/user.model.js";
 import { uploadOnCloudinary } from "../utils/commonMethod.js";
-import { io } from "../server.js";           // <- from your server.js
+import { io } from "../server.js";
 
 // helper: ensure chat is doctor<->doctor or doctor<->patient
 const validateChatRoles = (u1, u2) => {
-  const roles = [u1.role, u2.role];          // e.g. ["doctor", "patient"]
-
+  const roles = [u1.role, u2.role];
   const hasDoctor = roles.includes("doctor");
   const allPatients = roles.every((r) => r === "patient");
 
@@ -27,6 +26,7 @@ const validateChatRoles = (u1, u2) => {
  * POST /chat
  * body: { userId: "<otherUserId>" }
  * return existing 1-1 chat or create a new one.
+ * ✅ FIXED: isGroupChat instead of isGroup
  */
 export const createOrGetChat = catchAsync(async (req, res) => {
   const meId = req.user._id;
@@ -48,30 +48,36 @@ export const createOrGetChat = catchAsync(async (req, res) => {
 
   validateChatRoles(me, other);
 
-  // check if chat already exists (2-person chat)
+  // ✅ FIXED: Check with isGroupChat: false (matching model field)
   let chat = await Chat.findOne({
     participants: { $all: [meId, userId], $size: 2 },
-    isGroup: false,
+    isGroupChat: false, // ✅ Changed from isGroup to isGroupChat
   })
-    .populate("participants", "fullName avatar role")
-    .populate("lastMessage");
-
-  if (!chat) {
-    chat = await Chat.create({
-      participants: [meId, userId],
-      isGroup: false,
+    .populate("participants", "fullName avatar role specialty experienceYears bio degrees")
+    .populate({
+      path: "lastMessage",
+      populate: { path: "sender", select: "fullName avatar role" },
     });
 
-    // chat = await chat
-    //   .populate("participants", "fullName avatar role")
-    //   .execPopulate?.(); // older Mongoose; if not, re-query
+  if (!chat) {
+    console.log('📝 Creating new chat between:', meId, 'and', userId);
+    
+    chat = await Chat.create({
+      participants: [meId, userId],
+      isGroupChat: false, // ✅ Changed from isGroup to isGroupChat
+    });
 
-    // if (!chat?.participants) {
-    //   // in case execPopulate is not available
-    //   chat = await Chat.findById(chat._id)
-    //     .populate("participants", "fullName avatar role")
-    //     .populate("lastMessage");
-    // }
+    // Re-fetch with populated fields
+    chat = await Chat.findById(chat._id)
+      .populate("participants", "fullName avatar role specialty experienceYears bio degrees")
+      .populate({
+        path: "lastMessage",
+        populate: { path: "sender", select: "fullName avatar role" },
+      });
+    
+    console.log('✅ New chat created:', chat._id);
+  } else {
+    console.log('✅ Existing chat found:', chat._id);
   }
 
   sendResponse(res, {
@@ -84,25 +90,59 @@ export const createOrGetChat = catchAsync(async (req, res) => {
 
 /**
  * GET /chat
- * Get all chats for current user
+ * Get all chats for current user with unread count
+ * ✅ FIXED: Better sorting and deduplication
  */
 export const getMyChats = catchAsync(async (req, res) => {
   const meId = req.user._id;
 
-  const chats = await Chat.find({ participants: meId })
+  const chats = await Chat.find({ 
+    participants: meId,
+    isGroupChat: false, // ✅ Only get 1-1 chats
+  })
     .sort({ updatedAt: -1 })
-    .populate("participants", "fullName avatar role")
+    .populate("participants", "fullName avatar role specialty experienceYears bio degrees")
     .populate({
       path: "lastMessage",
       populate: { path: "sender", select: "fullName avatar role" },
     })
     .lean();
 
+  // ✅ Remove any duplicate chats (same participants)
+  const uniqueChats = [];
+  const seenPairIds = new Set();
+
+  for (const chat of chats) {
+    // Create a unique key from participant IDs
+    const participantIds = chat.participants
+      .map(p => p._id.toString())
+      .sort()
+      .join('-');
+    
+    if (!seenPairIds.has(participantIds)) {
+      seenPairIds.add(participantIds);
+      
+      // Calculate unread count
+      const unreadCount = await Message.countDocuments({
+        chatId: chat._id,
+        sender: { $ne: meId },
+        seenBy: { $ne: meId },
+      });
+
+      uniqueChats.push({
+        ...chat,
+        unreadCount,
+      });
+    }
+  }
+
+  console.log(`✅ Fetched ${uniqueChats.length} unique chats for user ${meId}`);
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Chats fetched",
-    data: chats,
+    data: uniqueChats,
   });
 });
 
@@ -111,7 +151,7 @@ export const getMyChats = catchAsync(async (req, res) => {
  */
 export const getChatMessages = catchAsync(async (req, res) => {
   const { chatId } = req.params;
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 50 } = req.query;
   const meId = req.user._id;
 
   const chat = await Chat.findById(chatId);
@@ -121,7 +161,7 @@ export const getChatMessages = catchAsync(async (req, res) => {
   }
 
   const pageNum = Number(page) || 1;
-  const limitNum = Number(limit) || 20;
+  const limitNum = Number(limit) || 50;
 
   const [messages, total] = await Promise.all([
     Message.find({ chatId })
@@ -133,12 +173,24 @@ export const getChatMessages = catchAsync(async (req, res) => {
     Message.countDocuments({ chatId }),
   ]);
 
+  // Mark messages as seen
+  await Message.updateMany(
+    {
+      chatId,
+      sender: { $ne: meId },
+      seenBy: { $ne: meId },
+    },
+    {
+      $addToSet: { seenBy: meId },
+    }
+  );
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Messages fetched",
     data: {
-      items: messages.reverse(), // oldest -> newest for UI
+      items: messages.reverse(),
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -153,6 +205,7 @@ export const getChatMessages = catchAsync(async (req, res) => {
  * form-data:
  *  - content (optional if files)
  *  - files[] (images/videos/etc)
+ * ✅ FIXED: Properly handle file attachments with correct field name
  */
 export const sendMessage = catchAsync(async (req, res) => {
   const { chatId } = req.params;
@@ -169,32 +222,50 @@ export const sendMessage = catchAsync(async (req, res) => {
 
   const { content, contentType = "text" } = req.body;
 
-  const files = req.files?.files || []; // if you use upload.array("files")
-  const attachments = [];
+  const files = req.files?.files || req.files || [];
+  const fileUrls = []; // ✅ Changed from attachments to fileUrls
 
+  // ✅ Upload files to cloudinary
   for (const file of files) {
-    const up = await uploadOnCloudinary(file.buffer, {
-      folder: "docmobi/chat",
-      resource_type: "auto",
-    });
+    try {
+      const up = await uploadOnCloudinary(file.buffer, {
+        folder: "docmobi/chat",
+        resource_type: "auto",
+      });
 
-    attachments.push({
-      name: file.originalname,
-      type: contentType === "text" ? "file" : contentType,
-      url: up.secure_url,
-    });
+      fileUrls.push({
+        name: file.originalname,
+        url: up.secure_url,
+        content: file.mimetype,
+      });
+    } catch (error) {
+      console.error('❌ Error uploading file:', error);
+    }
   }
 
-  if (!content && attachments.length === 0) {
+  if (!content && fileUrls.length === 0) {
     throw new AppError(httpStatus.BAD_REQUEST, "Nothing to send");
+  }
+
+  // ✅ Determine content type based on files
+  let finalContentType = contentType;
+  if (fileUrls.length > 0) {
+    const firstFile = fileUrls[0];
+    if (firstFile.content?.startsWith('image/')) {
+      finalContentType = 'image';
+    } else if (firstFile.content?.startsWith('video/')) {
+      finalContentType = 'video';
+    } else {
+      finalContentType = 'file';
+    }
   }
 
   const message = await Message.create({
     chatId,
     sender: meId,
-    content,
-    contentType: attachments.length ? contentType : "text",
-    attachments,
+    content: content || '',
+    contentType: finalContentType,
+    fileUrl: fileUrls, // ✅ Changed from attachments to fileUrl
     seenBy: [meId],
   });
 
@@ -205,10 +276,11 @@ export const sendMessage = catchAsync(async (req, res) => {
     .populate("sender", "fullName avatar role")
     .lean();
 
-  // ----- SOCKET PUSH -----
-  // notify all participants
+  console.log('✅ Message sent:', populatedMsg._id);
+
+  // Socket notification to all participants
   for (const p of chat.participants) {
-    io.to(`chat_${p._id}`).emit("chat:newMessage", {
+    io.to(`chat_${p._id}`).emit("message:new", {
       chatId,
       message: populatedMsg,
     });

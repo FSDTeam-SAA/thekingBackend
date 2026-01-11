@@ -68,6 +68,8 @@ const userSchema = new Schema(
 
     experienceYears: { type: Number, default: 0, min: 0 },
 
+    address: { type: String, trim: true }, //========== adding 
+
     // Doctor fields
     specialty: { type: String, trim: true },
     specialties: [{ type: String, trim: true }],

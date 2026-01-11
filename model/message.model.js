@@ -1,4 +1,3 @@
-// model/message.model.js
 import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
@@ -29,6 +28,14 @@ const messageSchema = new mongoose.Schema(
         url: { type: String },
       },
     ],
+    // ✅ NEW: Track who has seen this message
+    seenBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: [],
+      },
+    ],
     createdAt: {
       type: Date,
       default: Date.now,
@@ -37,5 +44,8 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ❗ NAMED EXPORT (not default)
+// ✅ Index for faster queries
+messageSchema.index({ chatId: 1, createdAt: -1 });
+messageSchema.index({ chatId: 1, seenBy: 1 });
+
 export const Message = mongoose.model("Message", messageSchema);

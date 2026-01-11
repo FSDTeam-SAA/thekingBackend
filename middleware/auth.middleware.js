@@ -5,47 +5,62 @@ import { User } from "./../model/user.model.js";
 
 export const protect = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) throw new AppError(httpStatus.NOT_FOUND, "Token not found");
+  
+  if (!token) {
+    throw new AppError(httpStatus.UNAUTHORIZED, "Token not found");
+  }
 
   try {
-    const decoded = await jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
     console.log("Decoded token:", decoded);
-    // console.log(decoded)
-    const user = await User.findById(decoded._id);
-    if (user) {
-      
-      req.user = user;
-      console.log("User authenticated:", user);
+    
+    // ✅ CRITICAL FIX: Find user and handle if not found
+    const user = await User.findById(decoded._id).select("-password");
+    
+    if (!user) {
+      throw new AppError(httpStatus.UNAUTHORIZED, "User not found or deleted");
     }
-    next();
+    
+    // ✅ Set req.user BEFORE calling next()
+    req.user = user;
+    console.log("✅ User authenticated:", user._id, user.email, user.role);
+    
+    next(); // ✅ Only call after setting req.user
   } catch (err) {
-    throw new AppError(401, "Invalid token");
+    console.error("❌ Auth error:", err);
+    throw new AppError(httpStatus.UNAUTHORIZED, "Invalid or expired token");
   }
 };
 
-
-// New middleware to check for 'Admin' role
+// Admin middleware
 export const isAdmin = (req, res, next) => {
-  console.log("Checking admin role for user:", req.user);
-  if (req.user?.role !== "admin") {
-    throw new AppError(403, "Access denied. You are not an admin.");
+  if (!req.user) {
+    throw new AppError(httpStatus.UNAUTHORIZED, "User not authenticated");
+  }
+  if (req.user.role !== "admin") {
+    throw new AppError(httpStatus.FORBIDDEN, "Access denied. Admin only.");
   }
   next();
 };
 
-
-// New middleware to check for 'Doctor' role
+// Doctor middleware
 export const isDoctor = (req, res, next) => {
-  if (req.user?.role !== "doctor") {
-    throw new AppError(403, "Access denied. You are not an doctor.");
+  if (!req.user) {
+    throw new AppError(httpStatus.UNAUTHORIZED, "User not authenticated");
+  }
+  if (req.user.role !== "doctor") {
+    throw new AppError(httpStatus.FORBIDDEN, "Access denied. Doctor only.");
   }
   next();
 };
 
-//middleware to check if the user is a patient
+// Patient middleware
 export const isPatient = (req, res, next) => {
-  if (req.user?.role !== "patient") {
-    throw new AppError(403, "Access denied. You are not an patient.");
+  if (!req.user) {
+    throw new AppError(httpStatus.UNAUTHORIZED, "User not authenticated");
+  }
+  if (req.user.role !== "patient") {
+    throw new AppError(httpStatus.FORBIDDEN, "Access denied. Patient only.");
   }
   next();
 };
