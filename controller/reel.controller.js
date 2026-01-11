@@ -139,33 +139,48 @@ export const getReels = catchAsync(async (req, res) => {
 /**
  * Get all public reels (main feed)
  */
+/**
+ * Get reels (main feed) with role-based visibility access
+ * - patient  -> public only
+ * - doctor   -> public + private
+ */
 export const getAllReels = catchAsync(async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
   const pageNum = Number(page) || 1;
   const limitNum = Number(limit) || 10;
-  const userId = req.user._id;
+
+  const userId = req.user?._id;
+  const role = req.user?.role;
+
+  // Role-based visibility filter
+  const visibilityFilter =
+    role === "doctor"
+      ? { visibility: { $in: ["public", "private"] } }
+      : { visibility: "public" }; // patient (default)
 
   const [reels, total] = await Promise.all([
-    Reel.find({ visibility: "public" })
+    Reel.find(visibilityFilter)
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
       .populate("author", "fullName avatar role specialty")
       .lean(),
-    Reel.countDocuments({ visibility: "public" }),
+    Reel.countDocuments(visibilityFilter),
   ]);
 
-  // ✅ Add isLiked and commentsCount to each reel
   const reelsWithUserData = await Promise.all(
     reels.map(async (reel) => {
-      const [isLiked, commentsCount] = await Promise.all([
-        reel.likes?.includes(userId.toString()),
+      const [commentsCount] = await Promise.all([
         ReelComment.countDocuments({ reel: reel._id }),
       ]);
-      
+
+      const isLiked = (reel.likes || []).some(
+        (id) => id.toString() === userId.toString()
+      );
+
       return {
         ...reel,
-        isLiked: !!isLiked,
+        isLiked,
         likesCount: reel.likes?.length || 0,
         commentsCount,
         sharesCount: reel.sharesCount || 0,
@@ -187,6 +202,7 @@ export const getAllReels = catchAsync(async (req, res) => {
     },
   });
 });
+
 
 /**
  * Get single reel by id
