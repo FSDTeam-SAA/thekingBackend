@@ -1,4 +1,4 @@
-// controller/appointment.controller.js
+// ===controller/appointment.controller.js
 import httpStatus from "http-status";
 import mongoose from "mongoose";
 import AppError from "../errors/AppError.js";
@@ -39,7 +39,7 @@ const parseJSONMaybe = (value) => {
 export const createAppointment = catchAsync(async (req, res) => {
   const {
     doctorId,
-    appointmentType, // "physical" | "video"
+    appointmentType, // "physical" | "videooo"
     date,            // "2025-12-04"
     time,            // "10:30"
     symptoms,
