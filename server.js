@@ -78,35 +78,66 @@ io.on("connection", (socket) => {
     io.to(`chat_${toUserId}`).emit("chat:stopTyping", { chatId });
   });
 
-  socket.on("call:request", ({ fromUserId, toUserId, chatId }) => {
+  socket.on("call:request", ({ fromUserId, toUserId, chatId, isVideo }) => {
     if (!toUserId) return;
     io.to(`chat_${toUserId}`).emit("call:incoming", {
       fromUserId,
       chatId,
+      isVideo: isVideo ?? true, // Default to video if not specified
     });
   });
 
-  socket.on("call:offer", ({ toUserId, chatId, offer }) => {
+  socket.on("call:offer", (data) => {
+    const { toUserId } = data;
     if (!toUserId) return;
-    io.to(`chat_${toUserId}`).emit("call:offer", { chatId, offer });
+    io.to(`chat_${toUserId}`).emit("call:offer", data);
   });
 
-  socket.on("call:answer", ({ toUserId, chatId, answer }) => {
+  socket.on("call:answer", (data) => {
+    const { toUserId } = data;
     if (!toUserId) return;
-    io.to(`chat_${toUserId}`).emit("call:answer", { chatId, answer });
+    io.to(`chat_${toUserId}`).emit("call:answer", data);
   });
 
-  socket.on("call:iceCandidate", ({ toUserId, chatId, candidate }) => {
+  socket.on("call:iceCandidate", (data) => {
+    const { toUserId } = data;
     if (!toUserId) return;
-    io.to(`chat_${toUserId}`).emit("call:iceCandidate", {
-      chatId,
-      candidate,
-    });
+    io.to(`chat_${toUserId}`).emit("call:iceCandidate", data);
+  });
+
+  socket.on("call:media_update", (data) => {
+    const { toUserId } = data;
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:media_update", data);
+  });
+
+  socket.on("call:switch_request", (data) => {
+    const { toUserId } = data;
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:switch_request", data);
+  });
+
+  socket.on("call:switch_response", (data) => {
+    const { toUserId } = data;
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:switch_response", data);
   });
 
   socket.on("call:end", ({ toUserId, chatId }) => {
     if (!toUserId) return;
-    io.to(`chat_${toUserId}`).emit("call:end", { chatId });
+    io.to(`chat_${toUserId}`).emit("call:ended", { chatId });
+  });
+
+  socket.on("call:reject", ({ toUserId, chatId }) => {
+    if (!toUserId) return;
+    io.to(`chat_${toUserId}`).emit("call:rejected", { chatId });
+    console.log(`❌ Call rejected in chat: ${chatId} for user: ${toUserId}`);
+  });
+
+  socket.on("call:accept", ({ fromUserId, chatId }) => {
+    if (!fromUserId) return;
+    io.to(`chat_${fromUserId}`).emit("call:accepted", { chatId });
+    console.log(`✅ Call accepted in chat: ${chatId} by user: ${fromUserId}`);
   });
 
   socket.on("disconnect", () => {
