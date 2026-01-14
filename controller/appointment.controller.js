@@ -36,6 +36,62 @@ const parseJSONMaybe = (value) => {
 // controller/appointment.controller.js - createAppointment function
 // Replace the bookedFor section with this:
 
+export const confirmAppointment = catchAsync(async (req, res) => {
+  const { appointmentId } = req.params;
+  const { status } = req.body;
+
+  if (!appointmentId || !status) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Appointment ID and status are required");
+  }
+
+  // Find the appointment
+  const appointment = await Appointment.findById(appointmentId);
+  if (!appointment) {
+    throw new AppError(httpStatus.NOT_FOUND, "Appointment not found");
+  }
+
+  // Update appointment status
+  const updatedAppointment = await Appointment.findByIdAndUpdate(
+    appointmentId,
+    { status },
+    { new: true }
+  );
+
+  if (!updatedAppointment) {
+    throw new AppError(httpStatus.INTERNAL_ERROR, "Failed to update appointment status");
+  }
+
+  // Get patient and doctor info for notification
+  const patient = await User.findById(appointment.patient);
+  const doctor = await User.findById(appointment.doctor);
+
+  // Send notification to patient
+  if (patient && status === 'accepted') {
+    await createNotification({
+      userId: patient._id,
+      fromUserId: doctor._id,
+      type: 'appointment_confirmed',
+      title: 'Appointment Confirmed! 🎉',
+      content: `Your appointment with Dr. ${doctor?.fullName || 'Doctor'} has been confirmed for ${appointment.appointmentDate} at ${appointment.time}.`,
+      appointmentId: appointment._id,
+      meta: {
+        appointmentType: appointment.appointmentType,
+        date: appointment.appointmentDate,
+        time: appointment.time,
+        patientId: patient._id,
+        doctorId: doctor._id,
+      },
+    });
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Appointment status updated successfully',
+    data: updatedAppointment
+  });
+});
+
 export const createAppointment = catchAsync(async (req, res) => {
   const {
     doctorId,
@@ -704,11 +760,26 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   }
 
   if (notifyUserId) {
+    // Determine notification type for FCM
+    let notificationType = "appointment_status_change";
+    let notificationTitle = "Appointment status updated";
+    
+    if (status === "accepted") {
+      notificationType = "appointment_confirmed";
+      notificationTitle = "Appointment Confirmed! 🎉";
+    } else if (status === "cancelled") {
+      notificationType = "appointment_cancelled";
+      notificationTitle = "Appointment Cancelled";
+    } else if (status === "completed") {
+      notificationType = "appointment_completed";
+      notificationTitle = "Appointment Completed";
+    }
+
     await createNotification({
       userId: notifyUserId,
-      fromUserId: fromUserId,
-      type: "appointment_status_change",
-      title: "Appointment status updated",
+      fromUserId,
+      type: notificationType,
+      title: notificationTitle,
       content,
       appointmentId: appointment._id,
       meta: {
@@ -719,6 +790,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
         patientName,
         updatedBy: role,
       },
+      sendPush: true, // Enable FCM push notification
     });
   }
 

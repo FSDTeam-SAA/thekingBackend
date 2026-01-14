@@ -208,6 +208,14 @@ const userSchema = new Schema(
 
     refreshToken: { type: String, default: "" },
 
+    // FCM device tokens for push notifications
+    fcmTokens: [{
+      token: { type: String, required: true },
+      platform: { type: String, enum: ["android", "ios", "web"], required: true },
+      createdAt: { type: Date, default: Date.now },
+      isActive: { type: Boolean, default: true }
+    }],
+
     review: [
       {
         rating: {

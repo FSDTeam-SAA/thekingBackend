@@ -116,14 +116,17 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, async () => {
-  console.log("═════════════════════════════════════════");
+  console.log("═══════════════════════════════════════════════");
   console.log(`🚀 Server is running on port ${PORT}`);
-  console.log("═════════════════════════════════════════");
+  console.log("═══════════════════════════════════════════════");
+
+  // Firebase/FCM removed - now using local polling notification system
+  console.log("✅ Local notification system ready");
 
   try {
     await mongoose.connect(process.env.MONGO_DB_URL);
     console.log("✅ MongoDB connected successfully");
-    console.log("═════════════════════════════════════════");
+    console.log("═══════════════════════════════════════════════");
     console.log("📋 Available Routes:");
     console.log("   - /api/v1/auth");
     console.log("   - /api/v1/user");
@@ -133,7 +136,7 @@ server.listen(PORT, async () => {
     console.log("   - /api/v1/chat");
     console.log("   - /api/v1/notification");
     console.log("   - /api/v1/doctor-review");
-    console.log("═════════════════════════════════════════");
+    console.log("═══════════════════════════════════════════════");
   } catch (err) {
     console.error("❌ MongoDB connection error:", err);
     process.exit(1);

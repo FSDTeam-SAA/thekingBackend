@@ -7,6 +7,7 @@ import {
   updateAppointment,
   updateAppointmentStatus,
   deleteAppointment,
+  confirmAppointment,
 } from "../controller/appointment.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -25,6 +26,9 @@ router.post(
   ]),
   createAppointment
 );
+
+// POST /:appointmentId/confirm - Doctor confirms appointment
+router.patch("/:appointmentId/confirm", protect, confirmAppointment);
 router.post("/available", getAvailableAppointments);
 // get all appointments (doctor/patient/admin)
 

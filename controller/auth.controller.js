@@ -104,8 +104,8 @@ export const register = catchAsync(async (req, res) => {
   const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
   // const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
-  
-  const approvalStatus = "approved";
+
+  // const approvalStatus = "approved";
 
   const newUser = await User.create({
     phone,
@@ -116,7 +116,7 @@ export const register = catchAsync(async (req, res) => {
     role: roleNormalized,
     specialty,
     medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
-    approvalStatus,
+    // approvalStatus,
     verificationInfo: { token: "" },
     registrationReferralCode: normalizedReferralCode || undefined,
   });
@@ -146,12 +146,11 @@ export const login = catchAsync(async (req, res) => {
   }
 
   // doctor approval check
-  if (user.role === "doctor" && user.approvalStatus !== "approved") {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      "Doctor account pending admin approval"
-    );
-  }
+  // if (user.role === "doctor" && user.approvalStatus !== "approved") {
+  //   throw new AppError(
+  //     httpStatus.FORBIDDEN,
+  //     "Doctor account pending admin approval"
+  //   );
 
   const jwtPayload = { _id: user._id, email: user.email, role: user.role };
 
@@ -186,7 +185,7 @@ export const login = catchAsync(async (req, res) => {
       refreshToken,
       role: user.role,
       _id: user._id,
-      approvalStatus: user.approvalStatus,
+      // approvalStatus: user.approvalStatus,
       user,
     },
   });
