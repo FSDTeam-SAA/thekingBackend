@@ -3,7 +3,7 @@ const { RtcTokenBuilder, RtcRole } = agoraAccessToken;
 
 // Should be in environment variables
 const APP_ID = "8299a6de4a084700a4a48d1c15f15d21";
-const APP_CERTIFICATE = "d6f55403e944439c89396bf8532f8149"; // You need to provide this, or I will use a placeholder/ask user.
+const APP_CERTIFICATE = "b46479dd44fa4ac499879aefd2929a37"; // You need to provide this, or I will use a placeholder/ask user.
 // WAIT: The user provided APP_ID but NOT APP_CERTIFICATE in the code snippets.
 // Agora Token generation REQUIRES App Certificate. 
 // I will assume the user HAS it or needs to get it. 

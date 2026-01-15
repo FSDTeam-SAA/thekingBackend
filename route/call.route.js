@@ -1,6 +1,7 @@
 import express from "express";
 import { initiateCall, endCall, getToken } from "../controller/call.controller.js";
-import auth from "../middleware/auth.js";
+import auth from "../middleware/auth.middleware.js";
+
 
 const router = express.Router();
 
