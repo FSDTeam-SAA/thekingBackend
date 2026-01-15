@@ -145,7 +145,7 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5005;
 server.listen(PORT, async () => {
   console.log("═══════════════════════════════════════════════");
   console.log(`🚀 Server is running on port ${PORT}`);

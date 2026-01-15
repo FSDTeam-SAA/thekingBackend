@@ -1,13 +1,11 @@
 import express from "express";
-import { protect } from "../middleware/auth.middleware.js";
-import { initiateCall, endCall } from "../controller/call.controller.js";
+import { initiateCall, endCall, getToken } from "../controller/call.controller.js";
+import auth from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Initiate call
-router.post("/initiate", protect, initiateCall);
-
-// End call
-router.post("/end", protect, endCall);
+router.post("/initiate", auth(), initiateCall);
+router.post("/end", auth(), endCall);
+router.get("/token", auth(), getToken); // ✅ New Token Route
 
 export default router;
