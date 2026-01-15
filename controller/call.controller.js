@@ -87,10 +87,33 @@ export const endCall = catchAsync(async (req, res) => {
   io.to(`chat_${userId}`).emit("call:end", {
     chatId: String(chatId),
   });
+});
+
+/**
+ * Generate Agora Token
+ * GET /api/v1/call/token?channelName=...
+ */
+export const getToken = catchAsync(async (req, res) => {
+  const { channelName } = req.query;
+  const uid = req.user.numericUid || 0;
+
+  // Import dynamically to avoid top-level failures if package missing
+  const { generateAgoraToken } = await import("../utils/agoraToken.js");
+
+  if (!channelName) {
+    throw new AppError(httpStatus.BAD_REQUEST, "channelName is required");
+  }
+
+  const token = generateAgoraToken(channelName, uid);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: "Call ended",
+    message: "Token generated successfully",
+    data: {
+      token,
+      channelName,
+      uid,
+    },
   });
 });
