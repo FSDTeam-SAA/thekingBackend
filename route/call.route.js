@@ -1,5 +1,5 @@
 import express from "express";
-import { initiateCall, endCall, getToken } from "../controller/call.controller.js";
+import { protect } from "../controller/call.controller.js";
 import auth from "../middleware/auth.middleware.js";
 
 
