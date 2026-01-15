@@ -87,6 +87,12 @@ export const endCall = catchAsync(async (req, res) => {
   io.to(`chat_${userId}`).emit("call:end", {
     chatId: String(chatId),
   });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Call ended",
+  });
 });
 
 /**
