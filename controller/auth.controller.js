@@ -6,8 +6,8 @@ import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { User } from "../model/user.model.js";
-import { ReferralCode } from "../model/referralCode.model.js";
-import { SystemSetting } from "../model/systemSetting.model.js";
+// import { ReferralCode } from "../model/referralCode.model.js";
+// import { SystemSetting } from "../model/systemSetting.model.js";
 
 const normalizeRole = (role) => {
   const r = String(role || "patient").toLowerCase().trim();
@@ -28,7 +28,7 @@ export const register = catchAsync(async (req, res) => {
     role,
     specialty,
     medicalLicenseNumber,
-    referralCode: providedReferralCode,
+    // referralCode: providedReferralCode,
   } = req.body;
 
   if (!email || !password || !fullName) {
@@ -51,10 +51,10 @@ export const register = catchAsync(async (req, res) => {
     );
   }
 
-  let normalizedReferralCode =
-    typeof providedReferralCode === "string"
-      ? providedReferralCode.trim().toUpperCase()
-      : "";
+  // let normalizedReferralCode =
+  //   typeof providedReferralCode === "string"
+  //     ? providedReferralCode.trim().toUpperCase()
+  //     : "";
 
   // duplicates check
   const existingUser = await User.findOne({
@@ -74,31 +74,31 @@ export const register = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, message);
   }
 
-  let referralCodeDoc = null;
+  // let referralCodeDoc = null;
 
-  if (roleNormalized === "doctor") {
-    const settings = await SystemSetting.getSettings();
-    const requireReferralCode = settings?.requireDoctorReferralCode;
+  // if (roleNormalized === "doctor") {
+  //   const settings = await SystemSetting.getSettings();
+  //   const requireReferralCode = settings?.requireDoctorReferralCode;
 
-    if (requireReferralCode && !normalizedReferralCode) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "Referral code is required for doctor registration"
-      );
-    }
+  //   if (requireReferralCode && !normalizedReferralCode) {
+  //     throw new AppError(
+  //       httpStatus.BAD_REQUEST,
+  //       "Referral code is required for doctor registration"
+  //     );
+  //   }
 
-    // if (normalizedReferralCode) {
-    //   referralCodeDoc = await ReferralCode.claimActiveCode(normalizedReferralCode);
-    //   if (!referralCodeDoc) {
-    //     throw new AppError(
-    //       httpStatus.BAD_REQUEST,
-    //       "Referral code is invalid or inactive"
-    //     );
-    //   }
-    // }
-  } else {
-    normalizedReferralCode = "";
-  }
+  //   // if (normalizedReferralCode) {
+  //   //   referralCodeDoc = await ReferralCode.claimActiveCode(normalizedReferralCode);
+  //   //   if (!referralCodeDoc) {
+  //   //     throw new AppError(
+  //   //       httpStatus.BAD_REQUEST,
+  //   //       "Referral code is invalid or inactive"
+  //   //     );
+  //   //   }
+  //   // }
+  // } else {
+  //   normalizedReferralCode = "";
+  // }
 
   const exp = Number(experienceYears);
   const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
@@ -118,14 +118,14 @@ export const register = catchAsync(async (req, res) => {
     medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
     // approvalStatus,
     verificationInfo: { token: "" },
-    registrationReferralCode: normalizedReferralCode || undefined,
+    // registrationReferralCode: normalizedReferralCode || undefined,
   });
 
-  if (referralCodeDoc) {
-    await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
-      $inc: { timesUsed: 1 },
-    });
-  }
+  // if (referralCodeDoc) {
+  //   await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
+  //     $inc: { timesUsed: 1 },
+  //   });
+  // }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
