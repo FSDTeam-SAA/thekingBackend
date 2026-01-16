@@ -61,7 +61,7 @@ export const createOrGetChat = catchAsync(async (req, res) => {
 
   if (!chat) {
     console.log('📝 Creating new chat between:', meId, 'and', userId);
-    
+
     chat = await Chat.create({
       participants: [meId, userId],
       isGroupChat: false, // ✅ Changed from isGroup to isGroupChat
@@ -74,7 +74,7 @@ export const createOrGetChat = catchAsync(async (req, res) => {
         path: "lastMessage",
         populate: { path: "sender", select: "fullName avatar role" },
       });
-    
+
     console.log('✅ New chat created:', chat._id);
   } else {
     console.log('✅ Existing chat found:', chat._id);
@@ -96,7 +96,7 @@ export const createOrGetChat = catchAsync(async (req, res) => {
 export const getMyChats = catchAsync(async (req, res) => {
   const meId = req.user._id;
 
-  const chats = await Chat.find({ 
+  const chats = await Chat.find({
     participants: meId,
     isGroupChat: false, // ✅ Only get 1-1 chats
   })
@@ -118,10 +118,10 @@ export const getMyChats = catchAsync(async (req, res) => {
       .map(p => p._id.toString())
       .sort()
       .join('-');
-    
+
     if (!seenPairIds.has(participantIds)) {
       seenPairIds.add(participantIds);
-      
+
       // Calculate unread count
       const unreadCount = await Message.countDocuments({
         chatId: chat._id,
@@ -231,6 +231,7 @@ export const sendMessage = catchAsync(async (req, res) => {
       const up = await uploadOnCloudinary(file.buffer, {
         folder: "docmobi/chat",
         resource_type: "auto",
+        filename: file.originalname,
       });
 
       fileUrls.push({
@@ -291,5 +292,26 @@ export const sendMessage = catchAsync(async (req, res) => {
     success: true,
     message: "Message sent",
     data: populatedMsg,
+  });
+});
+
+/**
+ * GET /chat/token
+ * Generate Agora Chat Token for current user
+ */
+export const getChatToken = catchAsync(async (req, res) => {
+  const meId = req.user._id;
+  const { generateAgoraChatToken } = await import("../utils/agoraChatToken.js");
+
+  const token = generateAgoraChatToken(String(meId));
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Agora Chat Token generated",
+    data: {
+      token,
+      userId: String(meId),
+    },
   });
 });

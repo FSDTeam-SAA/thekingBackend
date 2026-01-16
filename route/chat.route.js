@@ -6,9 +6,13 @@ import {
   getMyChats,
   getChatMessages,
   sendMessage,
+  getChatToken,
 } from "../controller/chat.controller.js";
 
 const router = express.Router();
+
+// Get Agora Chat Token
+router.get("/token", protect, getChatToken);
 
 // create / fetch a 1-1 chat
 router.post("/", protect, createOrGetChat);
