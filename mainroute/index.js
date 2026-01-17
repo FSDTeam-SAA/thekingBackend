@@ -37,7 +37,7 @@ router.use("/reels", reelRoute);
 router.use("/doctor-review", doctorReviewRoute);
 
 // Notification routes
-router.use("/api/notifications", notificationRoute);
+router.use("/notification", notificationRoute);
 
 // Chat routes
 router.use("/chat", chatRoute);

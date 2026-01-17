@@ -56,10 +56,17 @@ app.use(notFound);
 io.on("connection", (socket) => {
   console.log("🔌 A client connected:", socket.id);
 
+  socket.on("joinUserRoom", (userId) => {
+    if (userId) {
+      socket.join(`chat_${userId}`);
+      console.log(`👤 Client ${socket.id} joined user signaling room: ${userId}`);
+    }
+  });
+
   socket.on("joinChatRoom", (userId) => {
     if (userId) {
       socket.join(`chat_${userId}`);
-      console.log(`👤 Client ${socket.id} joined user room: ${userId}`);
+      console.log(`👤 Client ${socket.id} joined legacy chat room: ${userId}`);
     }
   });
 

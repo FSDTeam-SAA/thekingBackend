@@ -92,3 +92,19 @@ export const markAllNotificationsRead = catchAsync(async (req, res) => {
     data: null,
   });
 });
+
+/**
+ * GET /notification/unread-count
+ */
+export const getUnreadCount = catchAsync(async (req, res) => {
+  const userId = req.user._id;
+
+  const count = await Notification.countDocuments({ userId, isRead: false });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Unread count fetched",
+    data: { count },
+  });
+});
