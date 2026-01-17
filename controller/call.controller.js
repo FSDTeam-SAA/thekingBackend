@@ -21,13 +21,29 @@ export const initiateCall = catchAsync(async (req, res) => {
     );
   }
 
-  // Verify chat exists
-  const chat = await Chat.findById(chatId);
+  // Verify chat exists or create one (since we are using Agora now, we might not have legacy Chats for everyone)
+  let chat = await Chat.findById(chatId);
+
   if (!chat) {
-    throw new AppError(httpStatus.NOT_FOUND, "Chat not found");
+    console.log(`🔍 Chat ID ${chatId} not found, searching by participants: ${callerId} & ${receiverId}`);
+    // Try to find a 1v1 chat between these participants
+    chat = await Chat.findOne({
+      participants: { $all: [callerId, receiverId] },
+      isGroupChat: false,
+    });
+
+    if (!chat) {
+      console.log("🆕 No existing chat found, creating a new one for signaling persistence");
+      chat = await Chat.create({
+        participants: [callerId, receiverId],
+        isGroupChat: false,
+      });
+    }
   }
 
-  // Verify both users are in chat
+  const actualChatId = chat._id;
+
+  // Verify both users are in chat (redundant if we just created it, but good for security on existing)
   const callerInChat = chat.participants.some(
     (p) => String(p) === String(callerId)
   );
@@ -51,7 +67,7 @@ export const initiateCall = catchAsync(async (req, res) => {
   // Emit socket event to receiver
   io.to(`chat_${receiverId}`).emit("call:incoming", {
     fromUserId: String(callerId),
-    chatId: String(chatId),
+    chatId: String(actualChatId),
     isVideo: callType === "video",
     callerName: req.user.fullName,
     callerAvatar: req.user.avatar?.url,
@@ -62,7 +78,7 @@ export const initiateCall = catchAsync(async (req, res) => {
     success: true,
     message: "Call initiated",
     data: {
-      chatId,
+      chatId: actualChatId,
       receiverId,
       callType,
     },
