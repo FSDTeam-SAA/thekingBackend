@@ -1,4 +1,5 @@
-import { ChatTokenBuilder } from 'agora-token';
+import pkg from 'agora-token';
+const { ChatTokenBuilder } = pkg;
 
 /**
  * Generate Agora Chat User Token
