@@ -68,7 +68,7 @@ const userSchema = new Schema(
 
     experienceYears: { type: Number, default: 0, min: 0 },
 
-    address: { type: String, trim: true }, //========== adding 
+    address: { type: String, trim: true },
 
     // Doctor fields
     specialty: { type: String, trim: true },
@@ -93,6 +93,13 @@ const userSchema = new Schema(
     visitingHoursText: { type: String, trim: true },
 
     weeklySchedule: { type: [dayScheduleSchema], default: [] },
+
+    // ✅ NEW: Video call availability for doctors
+    isVideoCallAvailable: {
+      type: Boolean,
+      default: false,
+      description: "Whether doctor offers video consultation",
+    },
 
     // gender: {
     //   type: String,
