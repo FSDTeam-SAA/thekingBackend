@@ -9,9 +9,7 @@ import { Appointment } from "../model/appointment.model.js";
 
 /**
  * POST /doctor-reviews
- * body: { doctorId, appointmentId?, rating, comment? }
- * - only patients
- * - optional: validate appointment (completed + belongs to patient & doctor)
+ * ✅ FIXED: Now prevents duplicate reviews per doctor-patient pair
  */
 export const createDoctorReview = catchAsync(async (req, res) => {
   const { doctorId, appointmentId, rating, comment } = req.body;
@@ -73,17 +71,11 @@ export const createDoctorReview = catchAsync(async (req, res) => {
   }
   // -------------------------------------------
 
-  // 🔁 UPSERT LOGIC (create or update)
+  // 🔥 FIXED: Query only by doctor + patient (ignore appointment)
   const query = {
     doctor: doctorId,
     patient: patientId,
   };
-
-  if (appointmentId) {
-    query.appointment = appointmentId;
-  } else {
-    query.appointment = { $exists: false };
-  }
 
   const update = {
     $set: {
@@ -101,6 +93,7 @@ export const createDoctorReview = catchAsync(async (req, res) => {
     setDefaultsOnInsert: true,
   };
 
+  // ✅ This will now UPDATE existing review instead of creating new
   let review = await DoctorReview.findOneAndUpdate(query, update, options);
 
   review = await review.populate([
@@ -111,7 +104,7 @@ export const createDoctorReview = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: "Review saved successfully",
+    message: review.isNew ? "Review created successfully" : "Review updated successfully",
     data: review,
   });
 });

@@ -290,7 +290,7 @@ export const getUserDetails = catchAsync(async (req, res) => {
 });
 
 /**
- * ✅ UPDATED: Update current user profile with Base64 Image Support
+ * ✅ UPDATED: Update current user profile with Video Call Support
  */
 export const updateProfile = catchAsync(async (req, res) => {
   const {
@@ -313,6 +313,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     weeklySchedule,
     visitingHoursText,
     medicalLicenseNumber,
+    isVideoCallAvailable, // ✅ NEW: Video call availability
   } = req.body;
 
   console.log('📝 ========== Update Profile Request ==========');
@@ -320,11 +321,13 @@ export const updateProfile = catchAsync(async (req, res) => {
   console.log('   - phone:', phone);
   console.log('   - address:', address);
   console.log('   - profileImage:', profileImage ? 'Yes (base64)' : 'No');
+  console.log('   - isVideoCallAvailable:', isVideoCallAvailable); // ✅ Log it
   console.log('================================================');
 
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
+  // Basic field updates
   if (fullName !== undefined) user.fullName = String(fullName).trim();
   if (username !== undefined) user.username = String(username).trim();
   if (phone !== undefined) user.phone = String(phone).trim();
@@ -365,6 +368,7 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (country !== undefined) user.country = String(country).trim();
   if (language !== undefined) user.language = String(language).trim();
 
+  // Profile image upload (Base64 or file)
   if (profileImage && typeof profileImage === 'string' && profileImage.startsWith('data:image')) {
     try {
       console.log('📸 Processing base64 image from Flutter...');
@@ -414,6 +418,8 @@ export const updateProfile = catchAsync(async (req, res) => {
   }
 
   const isDoctor = user.role === "doctor";
+  
+  // Doctor-specific fields validation
   const doctorPayloadTouched =
     specialty !== undefined ||
     specialties !== undefined ||
@@ -421,7 +427,8 @@ export const updateProfile = catchAsync(async (req, res) => {
     fees !== undefined ||
     weeklySchedule !== undefined ||
     visitingHoursText !== undefined ||
-    medicalLicenseNumber !== undefined;
+    medicalLicenseNumber !== undefined ||
+    isVideoCallAvailable !== undefined; // ✅ Include video call
 
   if (doctorPayloadTouched && !isDoctor) {
     throw new AppError(
@@ -430,6 +437,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     );
   }
 
+  // ✅ Update doctor-specific fields
   if (isDoctor) {
     if (specialty !== undefined) user.specialty = String(specialty).trim();
 
@@ -461,6 +469,15 @@ export const updateProfile = catchAsync(async (req, res) => {
     if (medicalLicenseNumber !== undefined) {
       user.medicalLicenseNumber = String(medicalLicenseNumber).trim();
     }
+
+    // ✅ NEW: Handle video call availability
+    if (isVideoCallAvailable !== undefined) {
+      const videoCallValue = parseBooleanInput(isVideoCallAvailable);
+      if (videoCallValue !== undefined) {
+        user.isVideoCallAvailable = videoCallValue;
+        console.log('✅ Video call availability updated to:', videoCallValue);
+      }
+    }
   }
 
   await user.save();
@@ -474,6 +491,7 @@ export const updateProfile = catchAsync(async (req, res) => {
   console.log('   - fullName:', safeUser.fullName);
   console.log('   - address:', safeUser.address);
   console.log('   - avatar:', safeUser.avatar?.url || 'No avatar');
+  console.log('   - isVideoCallAvailable:', safeUser.isVideoCallAvailable); // ✅ Log output
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
