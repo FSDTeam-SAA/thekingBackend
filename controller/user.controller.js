@@ -2,7 +2,10 @@
 import httpStatus from "http-status";
 import mongoose from "mongoose";
 import { User } from "../model/user.model.js";
-import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.js";
+import {
+  uploadOnCloudinary,
+  deleteFromCloudinary,
+} from "../utils/commonMethod.js";
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
@@ -108,7 +111,10 @@ const sanitizeDegrees = (input) => {
 
 const sanitizeSpecialties = (input) => {
   if (!Array.isArray(input)) return undefined;
-  return input.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 20);
+  return input
+    .map((s) => String(s || "").trim())
+    .filter(Boolean)
+    .slice(0, 20);
 };
 
 const trimmedOrUndefined = (value) => {
@@ -124,7 +130,7 @@ const parseOptionalDate = (value, fieldName) => {
   if (Number.isNaN(dt.getTime())) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `${fieldName || "Date"} must be valid`
+      `${fieldName || "Date"} must be valid`,
     );
   }
   return dt;
@@ -139,12 +145,18 @@ const parseBooleanInput = (value) => {
   return Boolean(value);
 };
 
+const percentageChange = (current, previous) => {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  const change = ((current - previous) / previous) * 100;
+  return Number(change.toFixed(1));
+};
+
 /**
  * Get current logged-in user profile
  */
 export const getProfile = catchAsync(async (req, res) => {
   const user = await User.findById(req.user._id).select(
-    "-password -refreshToken -verificationInfo -password_reset_token"
+    "-password -refreshToken -verificationInfo -password_reset_token",
   );
 
   if (!user) {
@@ -156,6 +168,49 @@ export const getProfile = catchAsync(async (req, res) => {
     success: true,
     message: "Profile fetched",
     data: user,
+  });
+});
+
+//search doctor by name, specialty, location
+export const searchDoctors = catchAsync(async (req, res) => {
+  const search = req.query?.search?.toString().trim();
+  const pipeline = [
+    // { $match: { role: "doctor" } },
+
+    ...(search
+      ? [
+          {
+            $match: {
+              $or: [
+                { fullName: { $regex: search, $options: "i" } },
+                { specialty: { $regex: search, $options: "i" } },
+                { address: { $regex: search, $options: "i" } },
+              ],
+            },
+          },
+        ]
+      : []),
+
+    {
+      $project: {
+        password: 0,
+        refreshToken: 0,
+        verificationInfo: 0,
+        password_reset_token: 0,
+      },
+    },
+  ];
+
+  const doctors = await User.aggregate(pipeline);
+
+  if (doctors.length === 0) {
+    throw new AppError(httpStatus.NOT_FOUND, "No doctors found");
+  }
+
+  res.status(200).json({
+    success: true,
+    results: doctors.length,
+    data: doctors,
   });
 });
 
@@ -171,9 +226,9 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
   }
 
-  let users = await User.find({ role }).select(
-    "-password -refreshToken -verificationInfo -password_reset_token"
-  ).lean();
+  let users = await User.find({ role })
+    .select("-password -refreshToken -verificationInfo -password_reset_token")
+    .lean();
 
   if (role !== "doctor") {
     return sendResponse(res, {
@@ -189,7 +244,9 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     const stats = await DoctorReview.aggregate([
       {
         $match: {
-          doctor: { $in: doctorIds.map((id) => new mongoose.Types.ObjectId(id)) },
+          doctor: {
+            $in: doctorIds.map((id) => new mongoose.Types.ObjectId(id)),
+          },
         },
       },
       {
@@ -232,15 +289,171 @@ export const getUsersByRole = catchAsync(async (req, res) => {
 });
 
 /**
+ * Admin dashboard overview: totals + weekly join trend for patients/doctors
+ */
+export const getDashboardOverview = catchAsync(async (req, res) => {
+  if (req.user?.role !== "admin") {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Only admin can view dashboard insights",
+    );
+  }
+
+  const now = new Date();
+
+  // Use UTC boundaries to avoid timezone drift between Mongo and server
+  const currentWeekEnd = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    ),
+  );
+  const currentWeekStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() - 6);
+
+  const previousWeekStart = new Date(currentWeekStart);
+  previousWeekStart.setUTCDate(previousWeekStart.getUTCDate() - 7);
+
+  const previousWeekEnd = new Date(currentWeekStart);
+  previousWeekEnd.setUTCDate(previousWeekEnd.getUTCDate() - 1);
+  previousWeekEnd.setUTCHours(23, 59, 59, 999);
+
+  const [overview] = await User.aggregate([
+    {
+      $match: { role: { $in: ["patient", "doctor"] } },
+    },
+    {
+      $facet: {
+        totals: [{ $group: { _id: "$role", count: { $sum: 1 } } }],
+        currentWeek: [
+          {
+            $match: {
+              createdAt: { $gte: currentWeekStart, $lte: currentWeekEnd },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                role: "$role",
+                date: {
+                  $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+                },
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ],
+        currentWeekTotals: [
+          {
+            $match: {
+              createdAt: { $gte: currentWeekStart, $lte: currentWeekEnd },
+            },
+          },
+          { $group: { _id: "$role", count: { $sum: 1 } } },
+        ],
+        previousWeekTotals: [
+          {
+            $match: {
+              createdAt: { $gte: previousWeekStart, $lte: previousWeekEnd },
+            },
+          },
+          { $group: { _id: "$role", count: { $sum: 1 } } },
+        ],
+      },
+    },
+  ]);
+
+  const totalsMap = Object.fromEntries(
+    (overview?.totals || []).map((item) => [item._id, item.count]),
+  );
+
+  const weekTotalsMap = Object.fromEntries(
+    (overview?.currentWeekTotals || []).map((item) => [item._id, item.count]),
+  );
+
+  const prevWeekTotalsMap = Object.fromEntries(
+    (overview?.previousWeekTotals || []).map((item) => [item._id, item.count]),
+  );
+
+  const currentWeekByDate = {};
+  (overview?.currentWeek || []).forEach(({ _id, count }) => {
+    const dateKey = _id?.date;
+    const role = _id?.role;
+    if (!dateKey || !role) return;
+    if (!currentWeekByDate[dateKey]) currentWeekByDate[dateKey] = {};
+    currentWeekByDate[dateKey][role] = count;
+  });
+
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const weeklySeries = [];
+  for (let i = 0; i < 7; i += 1) {
+    const day = new Date(currentWeekStart);
+    day.setUTCDate(day.getUTCDate() + i);
+    const key = day.toISOString().slice(0, 10);
+    weeklySeries.push({
+      date: key,
+      label: dayLabels[day.getUTCDay()],
+      patients: currentWeekByDate[key]?.patient || 0,
+      doctors: currentWeekByDate[key]?.doctor || 0,
+    });
+  }
+
+  const patientChange = percentageChange(
+    weekTotalsMap.patient || 0,
+    prevWeekTotalsMap.patient || 0,
+  );
+  const doctorChange = percentageChange(
+    weekTotalsMap.doctor || 0,
+    prevWeekTotalsMap.doctor || 0,
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Dashboard overview fetched",
+    data: {
+      totals: {
+        patients: {
+          count: totalsMap.patient || 0,
+          weeklyNew: weekTotalsMap.patient || 0,
+          weekOverWeekChangePct: patientChange,
+        },
+        doctors: {
+          count: totalsMap.doctor || 0,
+          weeklyNew: weekTotalsMap.doctor || 0,
+          weekOverWeekChangePct: doctorChange,
+        },
+      },
+      weeklySignups: {
+        range: {
+          start: currentWeekStart.toISOString(),
+          end: currentWeekEnd.toISOString(),
+          previousStart: previousWeekStart.toISOString(),
+          previousEnd: previousWeekEnd.toISOString(),
+        },
+        days: weeklySeries,
+      },
+    },
+  });
+});
+
+/**
  * Get single user (doctor / patient / admin) by id
  * For doctor we also include ratingSummary + recentReviews
  */
 export const getUserDetails = catchAsync(async (req, res) => {
   const { id } = req.params;
 
-  let user = await User.findById(id).select(
-    "-password -refreshToken -verificationInfo -password_reset_token"
-  ).lean();
+  let user = await User.findById(id)
+    .select("-password -refreshToken -verificationInfo -password_reset_token")
+    .lean();
 
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
@@ -290,7 +503,7 @@ export const getUserDetails = catchAsync(async (req, res) => {
 });
 
 /**
- * ✅ UPDATED: Update current user profile with Video Call Support
+ * ✅ UPDATED: Update current user profile with Base64 Image Support
  */
 export const updateProfile = catchAsync(async (req, res) => {
   const {
@@ -313,21 +526,18 @@ export const updateProfile = catchAsync(async (req, res) => {
     weeklySchedule,
     visitingHoursText,
     medicalLicenseNumber,
-    isVideoCallAvailable, // ✅ NEW: Video call availability
   } = req.body;
 
-  console.log('📝 ========== Update Profile Request ==========');
-  console.log('   - fullName:', fullName);
-  console.log('   - phone:', phone);
-  console.log('   - address:', address);
-  console.log('   - profileImage:', profileImage ? 'Yes (base64)' : 'No');
-  console.log('   - isVideoCallAvailable:', isVideoCallAvailable); // ✅ Log it
-  console.log('================================================');
+  console.log("📝 ========== Update Profile Request ==========");
+  console.log("   - fullName:", fullName);
+  console.log("   - phone:", phone);
+  console.log("   - address:", address);
+  console.log("   - profileImage:", profileImage ? "Yes (base64)" : "No");
+  console.log("================================================");
 
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
-  // Basic field updates
   if (fullName !== undefined) user.fullName = String(fullName).trim();
   if (username !== undefined) user.username = String(username).trim();
   if (phone !== undefined) user.phone = String(phone).trim();
@@ -336,7 +546,7 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (dob !== undefined) user.dob = dob;
   if (address !== undefined) {
     user.address = String(address).trim();
-    console.log('✅ Address updated to:', user.address);
+    console.log("✅ Address updated to:", user.address);
   }
 
   if (experienceYears !== undefined) {
@@ -344,7 +554,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     if (exp === undefined || exp < 0) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "experienceYears must be a positive number"
+        "experienceYears must be a positive number",
       );
     }
     user.experienceYears = exp;
@@ -358,7 +568,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     if (lat === undefined || lng === undefined) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "location must include lat and lng"
+        "location must include lat and lng",
       );
     }
 
@@ -368,44 +578,47 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (country !== undefined) user.country = String(country).trim();
   if (language !== undefined) user.language = String(language).trim();
 
-  // Profile image upload (Base64 or file)
-  if (profileImage && typeof profileImage === 'string' && profileImage.startsWith('data:image')) {
+  if (
+    profileImage &&
+    typeof profileImage === "string" &&
+    profileImage.startsWith("data:image")
+  ) {
     try {
-      console.log('📸 Processing base64 image from Flutter...');
-      
+      console.log("📸 Processing base64 image from Flutter...");
+
       const oldPublicId = user?.avatar?.public_id;
       if (oldPublicId) {
-        console.log('🗑️ Deleting old image:', oldPublicId);
+        console.log("🗑️ Deleting old image:", oldPublicId);
         await deleteFromCloudinary(oldPublicId).catch(() => {});
       }
 
-      const base64Data = profileImage.split(',')[1];
-      const buffer = Buffer.from(base64Data, 'base64');
+      const base64Data = profileImage.split(",")[1];
+      const buffer = Buffer.from(base64Data, "base64");
 
-      console.log('☁️ Uploading to Cloudinary...');
+      console.log("☁️ Uploading to Cloudinary...");
 
       const upload = await uploadOnCloudinary(buffer, {
         folder: "docmobi/users",
         resource_type: "image",
       });
 
-      user.avatar = { 
-        public_id: upload.public_id, 
-        url: upload.secure_url 
+      user.avatar = {
+        public_id: upload.public_id,
+        url: upload.secure_url,
       };
 
-      console.log('✅ Image uploaded successfully:', upload.secure_url);
+      console.log("✅ Image uploaded successfully:", upload.secure_url);
     } catch (error) {
-      console.error('❌ Image upload error:', error);
+      console.error("❌ Image upload error:", error);
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Failed to upload profile image"
+        "Failed to upload profile image",
       );
     }
   }
 
   if (req.file?.buffer) {
-    console.log('📸 Processing file from multer...');
+    console.log("📸 Processing file from multer...");
     const oldPublicId = user?.avatar?.public_id;
     if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => {});
 
@@ -418,8 +631,6 @@ export const updateProfile = catchAsync(async (req, res) => {
   }
 
   const isDoctor = user.role === "doctor";
-  
-  // Doctor-specific fields validation
   const doctorPayloadTouched =
     specialty !== undefined ||
     specialties !== undefined ||
@@ -427,17 +638,15 @@ export const updateProfile = catchAsync(async (req, res) => {
     fees !== undefined ||
     weeklySchedule !== undefined ||
     visitingHoursText !== undefined ||
-    medicalLicenseNumber !== undefined ||
-    isVideoCallAvailable !== undefined; // ✅ Include video call
+    medicalLicenseNumber !== undefined;
 
   if (doctorPayloadTouched && !isDoctor) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only doctors can update doctor profile fields"
+      "Only doctors can update doctor profile fields",
     );
   }
 
-  // ✅ Update doctor-specific fields
   if (isDoctor) {
     if (specialty !== undefined) user.specialty = String(specialty).trim();
 
@@ -469,29 +678,19 @@ export const updateProfile = catchAsync(async (req, res) => {
     if (medicalLicenseNumber !== undefined) {
       user.medicalLicenseNumber = String(medicalLicenseNumber).trim();
     }
-
-    // ✅ NEW: Handle video call availability
-    if (isVideoCallAvailable !== undefined) {
-      const videoCallValue = parseBooleanInput(isVideoCallAvailable);
-      if (videoCallValue !== undefined) {
-        user.isVideoCallAvailable = videoCallValue;
-        console.log('✅ Video call availability updated to:', videoCallValue);
-      }
-    }
   }
 
   await user.save();
-  console.log('💾 User saved successfully');
+  console.log("💾 User saved successfully");
 
   const safeUser = await User.findById(user._id).select(
-    "-password -refreshToken -verificationInfo -password_reset_token"
+    "-password -refreshToken -verificationInfo -password_reset_token",
   );
 
-  console.log('📤 Sending response with:');
-  console.log('   - fullName:', safeUser.fullName);
-  console.log('   - address:', safeUser.address);
-  console.log('   - avatar:', safeUser.avatar?.url || 'No avatar');
-  console.log('   - isVideoCallAvailable:', safeUser.isVideoCallAvailable); // ✅ Log output
+  console.log("📤 Sending response with:");
+  console.log("   - fullName:", safeUser.fullName);
+  console.log("   - address:", safeUser.address);
+  console.log("   - avatar:", safeUser.avatar?.url || "No avatar");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -553,14 +752,7 @@ export const getMyDependents = catchAsync(async (req, res) => {
  * Add dependent
  */
 export const addDependent = catchAsync(async (req, res) => {
-  const {
-    fullName,
-    relationship,
-    gender,
-    dob,
-    phone,
-    notes,
-  } = req.body;
+  const { fullName, relationship, gender, dob, phone, notes } = req.body;
 
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
@@ -573,7 +765,7 @@ export const addDependent = catchAsync(async (req, res) => {
   if ((user.dependents || []).length >= 20) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "You can add up to 20 dependents"
+      "You can add up to 20 dependents",
     );
   }
 
@@ -595,7 +787,7 @@ export const addDependent = catchAsync(async (req, res) => {
     if (notesVal.length > 500) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "notes cannot exceed 500 characters"
+        "notes cannot exceed 500 characters",
       );
     }
     dependentPayload.notes = notesVal;
@@ -623,15 +815,8 @@ export const addDependent = catchAsync(async (req, res) => {
  */
 export const updateDependent = catchAsync(async (req, res) => {
   const { dependentId } = req.params;
-  const {
-    fullName,
-    relationship,
-    gender,
-    dob,
-    phone,
-    notes,
-    isActive,
-  } = req.body;
+  const { fullName, relationship, gender, dob, phone, notes, isActive } =
+    req.body;
 
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
@@ -669,7 +854,7 @@ export const updateDependent = catchAsync(async (req, res) => {
     if (notesVal && notesVal.length > 500) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "notes cannot exceed 500 characters"
+        "notes cannot exceed 500 characters",
       );
     }
     dependent.notes = notesVal;
@@ -724,7 +909,7 @@ export const deleteDependent = catchAsync(async (req, res) => {
   if (activeAppointments.length > 0) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `Cannot delete dependent. They have ${activeAppointments.length} active appointment(s). Please cancel those appointments first.`
+      `Cannot delete dependent. They have ${activeAppointments.length} active appointment(s). Please cancel those appointments first.`,
     );
   }
 
@@ -749,7 +934,7 @@ export const updateDoctorApprovalStatus = catchAsync(async (req, res) => {
   if (role !== "admin") {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only admin can update approval status"
+      "Only admin can update approval status",
     );
   }
 
@@ -794,5 +979,62 @@ export const updateDoctorApprovalStatus = catchAsync(async (req, res) => {
       fullName: doctor.fullName,
       approvalStatus: doctor.approvalStatus,
     },
+  });
+});
+
+/**
+ * Admin: delete a user (hard delete)
+ */
+export const deleteUser = catchAsync(async (req, res) => {
+  if (req.user?.role !== "admin") {
+    throw new AppError(httpStatus.FORBIDDEN, "Only admin can delete users");
+  }
+
+  const { id } = req.params;
+  const user = await User.findById(id);
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  // best-effort cleanup of avatar
+  if (user.avatar?.public_id) {
+    await deleteFromCloudinary(user.avatar.public_id).catch(() => {});
+  }
+
+  await User.findByIdAndDelete(id);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "User deleted",
+    data: { _id: id },
+  });
+});
+
+//update location for client
+export const updateLocation = catchAsync(async (req, res) => {
+  const { lat, lng } = req.body;
+  // if (req.user.role === "doctor")
+  //   throw new AppError(
+  //     httpStatus.FORBIDDEN,
+  //     "Only client can update live location",
+  //   );
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      location: { lat: String(lat).trim(), lng: String(lng).trim() },
+    },
+    {
+      new: true,
+    },
+  ).select("location fullName email _id");
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Location updated",
+    data: user,
   });
 });

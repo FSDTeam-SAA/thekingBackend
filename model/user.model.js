@@ -19,7 +19,7 @@ const degreeSchema = new Schema(
     institute: { type: String, trim: true },
     year: { type: Number },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const slotSchema = new Schema(
@@ -27,7 +27,7 @@ const slotSchema = new Schema(
     start: { type: String, required: true, match: timeRegex },
     end: { type: String, required: true, match: timeRegex },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const dayScheduleSchema = new Schema(
@@ -36,7 +36,7 @@ const dayScheduleSchema = new Schema(
     isActive: { type: Boolean, default: false },
     slots: { type: [slotSchema], default: [] },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const dependentSchema = new Schema({
@@ -165,13 +165,17 @@ const userSchema = new Schema(
     },
 
     profilePhotos: [
-      { public_id: { type: String, required: true }, url: { type: String, required: true } },
+      {
+        public_id: { type: String, required: true },
+        url: { type: String, required: true },
+      },
     ],
 
     // Simple lat/lng strings
     location: {
       lat: { type: String, default: null },
       lng: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now() },
     },
 
     addresses: { type: Array, default: [] },
@@ -216,12 +220,18 @@ const userSchema = new Schema(
     refreshToken: { type: String, default: "" },
 
     // FCM device tokens for push notifications
-    fcmTokens: [{
-      token: { type: String, required: true },
-      platform: { type: String, enum: ["android", "ios", "web"], required: true },
-      createdAt: { type: Date, default: Date.now },
-      isActive: { type: Boolean, default: true }
-    }],
+    fcmTokens: [
+      {
+        token: { type: String, required: true },
+        platform: {
+          type: String,
+          enum: ["android", "ios", "web"],
+          required: true,
+        },
+        createdAt: { type: Date, default: Date.now },
+        isActive: { type: Boolean, default: true },
+      },
+    ],
 
     review: [
       {
@@ -236,7 +246,7 @@ const userSchema = new Schema(
       },
     ],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 userSchema.pre("save", async function (next) {
@@ -264,7 +274,9 @@ userSchema.pre("save", async function (next) {
       if (!d?.isActive) continue;
       for (const s of d.slots || []) {
         if (s.start >= s.end) {
-          return next(new Error(`Invalid slot on ${d.day}: start must be < end`));
+          return next(
+            new Error(`Invalid slot on ${d.day}: start must be < end`),
+          );
         }
       }
     }
@@ -277,7 +289,10 @@ userSchema.statics.isUserExistsByEmail = async function (email) {
   return await this.findOne({ email }).select("+password");
 };
 
-userSchema.statics.isPasswordMatched = async function (plainTextPassword, hashPassword) {
+userSchema.statics.isPasswordMatched = async function (
+  plainTextPassword,
+  hashPassword,
+) {
   return await bcrypt.compare(plainTextPassword, hashPassword);
 };
 
