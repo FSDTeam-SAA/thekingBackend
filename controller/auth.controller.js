@@ -203,13 +203,15 @@ export const forgetPassword = catchAsync(async (req, res) => {
   user.password_reset_token = otpToken;
   await user.save();
 
-  await sendEmail(user.email, "Reset Password", `Your OTP is ${otp}`);
+  // ✅ Use the OTP email template
+  const emailHtml = otpEmailTemplate(otp, user.fullName);
+  await sendEmail(user.email, "Password Reset OTP - DocMobi", emailHtml);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "OTP sent to your email successfully",
-    data: null,
+    data: { email: user.email }, 
   });
 });
 
