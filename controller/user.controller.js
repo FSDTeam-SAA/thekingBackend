@@ -175,7 +175,7 @@ export const getProfile = catchAsync(async (req, res) => {
 export const searchDoctors = catchAsync(async (req, res) => {
   const search = req.query?.search?.toString().trim();
   const pipeline = [
-    // { $match: { role: "doctor" } },
+    { $match: { role: "doctor" } },
 
     ...(search
       ? [
@@ -561,7 +561,7 @@ export const updateProfile = catchAsync(async (req, res) => {
   }
 
   if (location !== undefined) {
-    const loc = parseIfString(location);
+    const loc = parseIfString(location); // Convert string to object if needed
     const lat = loc?.lat;
     const lng = loc?.lng;
 
@@ -1015,11 +1015,11 @@ export const deleteUser = catchAsync(async (req, res) => {
 //update location for client
 export const updateLocation = catchAsync(async (req, res) => {
   const { lat, lng } = req.body;
-  // if (req.user.role === "doctor")
-  //   throw new AppError(
-  //     httpStatus.FORBIDDEN,
-  //     "Only client can update live location",
-  //   );
+  if (req.user.role === "doctor")
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Only client can update live location",
+    );
   const user = await User.findByIdAndUpdate(
     req.user._id,
     {
