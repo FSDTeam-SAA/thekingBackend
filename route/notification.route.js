@@ -5,6 +5,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
   getUnreadCount,
+  deleteNotification,
 } from "../controller/notification.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
@@ -21,5 +22,8 @@ router.patch("/:id/read", protect, markNotificationRead);
 
 // PATCH /notification/read-all
 router.patch("/read-all", protect, markAllNotificationsRead);
+
+// DELETE /notification/:id
+router.delete("/:id", protect, deleteNotification);
 
 export default router;

@@ -108,3 +108,25 @@ export const getUnreadCount = catchAsync(async (req, res) => {
     data: { count },
   });
 });
+
+/**
+ * DELETE /notification/:id
+ * delete single notification
+ */
+export const deleteNotification = catchAsync(async (req, res) => {
+  const userId = req.user._id;
+  const { id } = req.params;
+
+  const notif = await Notification.findOneAndDelete({ _id: id, userId });
+
+  if (!notif) {
+    throw new AppError(httpStatus.NOT_FOUND, "Notification not found");
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Notification deleted successfully",
+    data: null,
+  });
+});
