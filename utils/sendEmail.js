@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 const EMAIL_USER = 'tahsin.bdcalling@gmail.com';
 const EMAIL_PASS = 'lcnt cxiw pcui vikv';
 
+// ✅ Main sendEmail Function
 export const sendEmail = async (to, subject, html) => {
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',

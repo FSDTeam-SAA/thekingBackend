@@ -4,10 +4,8 @@ import catchAsync from "../utils/catchAsync.js";
 import { generateOTP } from "../utils/commonMethod.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
-import { sendEmail } from "../utils/sendEmail.js";
+import { sendEmail, otpEmailTemplate } from "../utils/sendEmail.js"; // ✅ FIXED: Added otpEmailTemplate
 import { User } from "../model/user.model.js";
-// import { ReferralCode } from "../model/referralCode.model.js";
-// import { SystemSetting } from "../model/systemSetting.model.js";
 
 const normalizeRole = (role) => {
   const r = String(role || "patient").toLowerCase().trim();
@@ -28,7 +26,6 @@ export const register = catchAsync(async (req, res) => {
     role,
     specialty,
     medicalLicenseNumber,
-    // referralCode: providedReferralCode,
   } = req.body;
 
   if (!email || !password || !fullName) {
@@ -51,11 +48,6 @@ export const register = catchAsync(async (req, res) => {
     );
   }
 
-  // let normalizedReferralCode =
-  //   typeof providedReferralCode === "string"
-  //     ? providedReferralCode.trim().toUpperCase()
-  //     : "";
-
   // duplicates check
   const existingUser = await User.findOne({
     $or: [
@@ -74,38 +66,8 @@ export const register = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, message);
   }
 
-  // let referralCodeDoc = null;
-
-  // if (roleNormalized === "doctor") {
-  //   const settings = await SystemSetting.getSettings();
-  //   const requireReferralCode = settings?.requireDoctorReferralCode;
-
-  //   if (requireReferralCode && !normalizedReferralCode) {
-  //     throw new AppError(
-  //       httpStatus.BAD_REQUEST,
-  //       "Referral code is required for doctor registration"
-  //     );
-  //   }
-
-  //   // if (normalizedReferralCode) {
-  //   //   referralCodeDoc = await ReferralCode.claimActiveCode(normalizedReferralCode);
-  //   //   if (!referralCodeDoc) {
-  //   //     throw new AppError(
-  //   //       httpStatus.BAD_REQUEST,
-  //   //       "Referral code is invalid or inactive"
-  //   //     );
-  //   //   }
-  //   // }
-  // } else {
-  //   normalizedReferralCode = "";
-  // }
-
   const exp = Number(experienceYears);
   const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
-
-  // const approvalStatus = roleNormalized === "doctor" ? "pending" : "approved";
-
-  // const approvalStatus = "approved";
 
   const newUser = await User.create({
     phone,
@@ -116,16 +78,8 @@ export const register = catchAsync(async (req, res) => {
     role: roleNormalized,
     specialty,
     medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
-    // approvalStatus,
     verificationInfo: { token: "" },
-    // registrationReferralCode: normalizedReferralCode || undefined,
   });
-
-  // if (referralCodeDoc) {
-  //   await ReferralCode.findByIdAndUpdate(referralCodeDoc._id, {
-  //     $inc: { timesUsed: 1 },
-  //   });
-  // }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -144,13 +98,6 @@ export const login = catchAsync(async (req, res) => {
   if (user?.password && !(await User.isPasswordMatched(password, user.password))) {
     throw new AppError(httpStatus.FORBIDDEN, "Password is not correct");
   }
-
-  // doctor approval check
-  // if (user.role === "doctor" && user.approvalStatus !== "approved") {
-  //   throw new AppError(
-  //     httpStatus.FORBIDDEN,
-  //     "Doctor account pending admin approval"
-  //   );
 
   const jwtPayload = { _id: user._id, email: user.email, role: user.role };
 
@@ -185,43 +132,72 @@ export const login = catchAsync(async (req, res) => {
       refreshToken,
       role: user.role,
       _id: user._id,
-      // approvalStatus: user.approvalStatus,
       user,
     },
   });
 });
 
+// ✅ FIXED: Forgot Password with OTP Email Template
 export const forgetPassword = catchAsync(async (req, res) => {
   const { email } = req.body;
 
+  console.log('📧 Forgot password request for:', email);
+
   const user = await User.isUserExistsByEmail(email);
-  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  if (!user) {
+    console.log('❌ User not found:', email);
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  console.log('✅ User found:', user.fullName);
 
   const otp = generateOTP();
-  const otpToken = createToken({ otp }, process.env.OTP_SECRET, process.env.OTP_EXPIRE);
+  console.log('🔑 Generated OTP:', otp); // Remove in production
+
+  const otpToken = createToken(
+    { otp }, 
+    process.env.OTP_SECRET, 
+    process.env.OTP_EXPIRE
+  );
 
   user.password_reset_token = otpToken;
   await user.save();
 
+  console.log('💾 OTP token saved to database');
+
   // ✅ Use the OTP email template
-  const emailHtml = otpEmailTemplate(otp, user.fullName);
-  await sendEmail(user.email, "Password Reset OTP - DocMobi", emailHtml);
+  try {
+    const emailHtml = otpEmailTemplate(otp, user.fullName);
+    await sendEmail(user.email, "Password Reset OTP - DocMobi", emailHtml);
+    console.log('✅ Email sent successfully to:', user.email);
+  } catch (emailError) {
+    console.error('❌ Email sending failed:', emailError);
+    throw new AppError(httpStatus.INTERNAL_SERVER_ERROR, "Failed to send email. Please try again.");
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "OTP sent to your email successfully",
-    data: { email: user.email }, 
+    data: { email: user.email },
   });
 });
 
+// ✅ FIXED: Reset Password with Better Logging
 export const resetPassword = catchAsync(async (req, res) => {
   const { email, otp, password } = req.body;
 
+  console.log('🔄 Reset password request for:', email);
+  console.log('🔑 OTP provided:', otp);
+
   const user = await User.isUserExistsByEmail(email);
-  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  if (!user) {
+    console.log('❌ User not found:', email);
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
 
   if (!user.password_reset_token) {
+    console.log('❌ No reset token found for user');
     throw new AppError(
       httpStatus.BAD_REQUEST,
       "Password reset token is invalid or expired"
@@ -231,17 +207,24 @@ export const resetPassword = catchAsync(async (req, res) => {
   let decoded;
   try {
     decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
-  } catch {
+    console.log('✅ Token verified. OTP from token:', decoded.otp);
+  } catch (error) {
+    console.log('❌ Token verification failed:', error.message);
     throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
   }
 
   if (decoded.otp !== otp) {
+    console.log('❌ OTP mismatch. Expected:', decoded.otp, 'Got:', otp);
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
   }
+
+  console.log('✅ OTP verified successfully');
 
   user.password = password;
   user.password_reset_token = undefined;
   await user.save();
+
+  console.log('✅ Password updated successfully');
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
