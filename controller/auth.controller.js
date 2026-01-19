@@ -15,6 +15,54 @@ const normalizeRole = (role) => {
   return r;
 };
 
+
+
+// ✅ NEW: Verify OTP Only (without resetting password)
+export const verifyOTP = catchAsync(async (req, res) => {
+  const { email, otp } = req.body;
+
+  console.log('🔍 Verifying OTP for:', email);
+  console.log('🔑 OTP provided:', otp);
+
+  const user = await User.isUserExistsByEmail(email);
+  if (!user) {
+    console.log('❌ User not found');
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  if (!user.password_reset_token) {
+    console.log('❌ No reset token found');
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "No OTP request found. Please request a new OTP."
+    );
+  }
+
+  let decoded;
+  try {
+    decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
+    console.log('✅ Token verified. OTP from token:', decoded.otp);
+  } catch (error) {
+    console.log('❌ Token verification failed');
+    throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
+  }
+
+  if (decoded.otp !== otp) {
+    console.log('❌ OTP mismatch');
+    throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
+  }
+
+  console.log('✅ OTP verified successfully');
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "OTP verified successfully",
+    data: null,
+  });
+});
+
+
 export const register = catchAsync(async (req, res) => {
   const {
     phone,

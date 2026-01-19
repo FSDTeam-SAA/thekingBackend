@@ -1,8 +1,8 @@
 import nodemailer from 'nodemailer';
 
 // ✅ Email Configuration
-const EMAIL_USER = 'tahsin.bdcalling@gmail.com';
-const EMAIL_PASS = 'lcnt cxiw pcui vikv';
+const EMAIL_USER = 'noyonahamed461@gmail.com';
+const EMAIL_PASS = 'rzun gaah hksx emzq';
 
 // ✅ Main sendEmail Function
 export const sendEmail = async (to, subject, html) => {
