@@ -163,11 +163,18 @@ export const getProfile = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
+  // ✅ Convert location to proper format
+  const userData = user.toObject();
+  if (userData.location) {
+    userData.latitude = userData.location.lat ? parseFloat(userData.location.lat) : null;
+    userData.longitude = userData.location.lng ? parseFloat(userData.location.lng) : null;
+  }
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Profile fetched",
-    data: user,
+    data: userData,
   });
 });
 
@@ -459,21 +466,19 @@ export const getUserDetails = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
+  // ✅ ADD THIS: Convert location to proper format
+  if (user.location) {
+    user.latitude = user.location.lat ? parseFloat(user.location.lat) : null;
+    user.longitude = user.location.lng ? parseFloat(user.location.lng) : null;
+  }
+
   let ratingSummary = { avgRating: 0, totalReviews: 0 };
   let recentReviews = [];
 
   if (user.role === "doctor") {
     const stats = await DoctorReview.aggregate([
-      {
-        $match: { doctor: new mongoose.Types.ObjectId(id) },
-      },
-      {
-        $group: {
-          _id: "$doctor",
-          avgRating: { $avg: "$rating" },
-          totalReviews: { $sum: 1 },
-        },
-      },
+      { $match: { doctor: new mongoose.Types.ObjectId(id) } },
+      { $group: { _id: "$doctor", avgRating: { $avg: "$rating" }, totalReviews: { $sum: 1 } } }
     ]);
 
     if (stats.length) {
@@ -494,11 +499,7 @@ export const getUserDetails = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "User details fetched",
-    data: {
-      ...user,
-      ratingSummary,
-      recentReviews,
-    },
+    data: { ...user, ratingSummary, recentReviews },
   });
 });
 
