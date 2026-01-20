@@ -1,27 +1,49 @@
 import nodemailer from 'nodemailer';
 
-// ✅ Email Configuration
-const EMAIL_USER = 'noyonahamed461@gmail.com';
-const EMAIL_PASS = 'rzun gaah hksx emzq';
+// ✅ Use environment variables instead of hardcoded credentials
+const EMAIL_USER = process.env.EMAIL_USER || 'noyonahamed461@gmail.com';
+const EMAIL_PASS = process.env.EMAIL_PASS || 'rzun gaah hksx emzq';
 
 // ✅ Main sendEmail Function
 export const sendEmail = async (to, subject, html) => {
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    auth: {
-      user: EMAIL_USER,
-      pass: EMAIL_PASS,
-    },
-  });
-  
-  await transporter.sendMail({
-    from: EMAIL_USER,
-    to,
-    subject: subject || 'DocMobi Notification',
-    html,
-  });
+  try {
+    console.log('📧 Attempting to send email to:', to);
+    console.log('🔐 Using email:', EMAIL_USER);
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // Use TLS
+      auth: {
+        user: EMAIL_USER,
+        pass: EMAIL_PASS,
+      },
+      // ✅ Add these for better reliability
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+
+    // ✅ Verify transporter configuration
+    await transporter.verify();
+    console.log('✅ SMTP connection verified');
+
+    const mailOptions = {
+      from: `"DocMobi" <${EMAIL_USER}>`,
+      to,
+      subject: subject || 'DocMobi Notification',
+      html,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email sent successfully:', info.messageId);
+    return info;
+
+  } catch (error) {
+    console.error('❌ Email sending failed:', error.message);
+    console.error('Full error:', error);
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
 };
 
 // ✅ OTP Email Template for Password Reset
@@ -85,7 +107,7 @@ export const sendMessageTemplate = ({ email, name, phone, message }) => {
       <section style="padding: 25px 0;">
         <p style="font-size: 16px; color: #111827; margin: 0 0 10px;"><strong>Sender Email:</strong> ${email}</p>
         <p style="font-size: 16px; color: #111827; margin: 0 0 10px;"><strong>Name:</strong> ${name}</p>
-        <p style="font-size: 16px; color: #111827; margin: 0 0 10px;"><strong>Phone:</strong> ${phone}</p>
+        <p style="font-size: 16px; color: #6b7280; margin: 0 0 10px;"><strong>Phone:</strong> ${phone}</p>
 
         <div style="margin-top: 20px; padding: 20px; background-color: #f9fafb; border-left: 4px solid #1d4ed8; border-radius: 8px;">
           <p style="font-size: 15px; color: #374151; margin: 0; white-space: pre-wrap;">
