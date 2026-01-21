@@ -205,7 +205,7 @@ const userSchema = new Schema(
     approvalStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
-      default: "approved",
+      default: "pending",
     },
 
     // verificationInfo: {
