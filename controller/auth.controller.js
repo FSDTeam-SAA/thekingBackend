@@ -147,6 +147,14 @@ export const login = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.FORBIDDEN, "Password is not correct");
   }
 
+  // ✅ Enforce Doctor Approval Logic
+  if (user.role === "doctor" && user.approvalStatus !== "approved") {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      `Your account is currently ${user.approvalStatus}. Please wait for admin approval.`
+    );
+  }
+
   const jwtPayload = { _id: user._id, email: user.email, role: user.role };
 
   const accessToken = createToken(
@@ -203,8 +211,8 @@ export const forgetPassword = catchAsync(async (req, res) => {
   console.log('🔑 Generated OTP:', otp); // Remove in production
 
   const otpToken = createToken(
-    { otp }, 
-    process.env.OTP_SECRET, 
+    { otp },
+    process.env.OTP_SECRET,
     process.env.OTP_EXPIRE
   );
 
