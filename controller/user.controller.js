@@ -61,14 +61,14 @@ const sanitizeWeeklySchedule = (input) => {
 
       const slots = Array.isArray(item?.slots)
         ? item.slots
-            .map((s) => {
-              const start = String(s?.start || "").trim();
-              const end = String(s?.end || "").trim();
-              if (!isValidTime(start) || !isValidTime(end)) return null;
-              if (start >= end) return null;
-              return { start, end };
-            })
-            .filter(Boolean)
+          .map((s) => {
+            const start = String(s?.start || "").trim();
+            const end = String(s?.end || "").trim();
+            if (!isValidTime(start) || !isValidTime(end)) return null;
+            if (start >= end) return null;
+            return { start, end };
+          })
+          .filter(Boolean)
         : [];
 
       return { day, isActive, slots };
@@ -186,16 +186,16 @@ export const searchDoctors = catchAsync(async (req, res) => {
 
     ...(search
       ? [
-          {
-            $match: {
-              $or: [
-                { fullName: { $regex: search, $options: "i" } },
-                { specialty: { $regex: search, $options: "i" } },
-                { address: { $regex: search, $options: "i" } },
-              ],
-            },
+        {
+          $match: {
+            $or: [
+              { fullName: { $regex: search, $options: "i" } },
+              { specialty: { $regex: search, $options: "i" } },
+              { address: { $regex: search, $options: "i" } },
+            ],
           },
-        ]
+        },
+      ]
       : []),
 
     {
@@ -217,6 +217,143 @@ export const searchDoctors = catchAsync(async (req, res) => {
   res.status(200).json({
     success: true,
     results: doctors.length,
+    data: doctors,
+  });
+});
+
+/**
+ * Get nearby doctors using Haversine formula
+ * Filters within ~50km radius
+ */
+export const getNearbyDoctors = catchAsync(async (req, res) => {
+  let { lat, lng, radiusKm } = req.query;
+
+  // Fallback to infinite radius if no location provided (legacy support)
+  if (!lat || !lng) {
+    return getUsersByRole(req, res);
+  }
+
+  const userLat = parseFloat(lat);
+  const userLng = parseFloat(lng);
+  const maxDistance = parseFloat(radiusKm) || 50; // Default 50km
+
+  // Earth radius in km
+  const R = 6371;
+
+  const doctors = await User.aggregate([
+    { $match: { role: "doctor" } },
+    // Convert string location to doubles
+    {
+      $addFields: {
+        docLat: { $toDouble: "$location.lat" },
+        docLng: { $toDouble: "$location.lng" },
+      },
+    },
+    // Filter valid coordinates
+    {
+      $match: {
+        docLat: { $type: "number" },
+        docLng: { $type: "number" },
+      },
+    },
+    // Calculate distance (Haversine Formula via Aggregation)
+    {
+      $addFields: {
+        dLat: { $degreesToRadians: { $subtract: ["$docLat", userLat] } },
+        dLng: { $degreesToRadians: { $subtract: ["$docLng", userLng] } },
+        lat1: { $degreesToRadians: "$docLat" },
+        lat2: { $degreesToRadians: userLat },
+      },
+    },
+    {
+      $addFields: {
+        a: {
+          $add: [
+            {
+              $pow: [{ $sin: { $divide: ["$dLat", 2] } }, 2],
+            },
+            {
+              $multiply: [
+                { $cos: "$lat1" },
+                { $cos: "$lat2" },
+                { $pow: [{ $sin: { $divide: ["$dLng", 2] } }, 2] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        c: {
+          $multiply: [
+            2,
+            { $atan2: [{ $sqrt: "$a" }, { $sqrt: { $subtract: [1, "$a"] } }] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        distanceKm: { $multiply: [R, "$c"] },
+      },
+    },
+    // Filter by max distance
+    {
+      $match: {
+        distanceKm: { $lte: maxDistance },
+      },
+    },
+    // Lookup ratings
+    {
+      $lookup: {
+        from: "doctorreviews",
+        let: { docId: "$_id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$doctor", "$$docId"] } } },
+          {
+            $group: {
+              _id: null,
+              avgRating: { $avg: "$rating" },
+              totalReviews: { $sum: 1 },
+            },
+          },
+        ],
+        as: "reviews",
+      },
+    },
+    {
+      $addFields: {
+        ratingSummary: {
+          $cond: {
+            if: { $gt: [{ $size: "$reviews" }, 0] },
+            then: { $arrayElemAt: ["$reviews", 0] },
+            else: { avgRating: 0, totalReviews: 0 },
+          },
+        },
+      },
+    },
+    // Project only necessary fields
+    {
+      $project: {
+        fullName: 1,
+        specialty: 1,
+        avatar: 1,
+        location: 1,
+        degrees: 1,
+        isVideoCallAvailable: 1,
+        weeklySchedule: 1,
+        address: 1,
+        ratingSummary: 1, // Keep calculated rating
+        distanceKm: 1, // Keep calculated distance
+      },
+    },
+  ]);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Found ${doctors.length} doctors near you`,
     data: doctors,
   });
 });
@@ -590,7 +727,7 @@ export const updateProfile = catchAsync(async (req, res) => {
       const oldPublicId = user?.avatar?.public_id;
       if (oldPublicId) {
         console.log("🗑️ Deleting old image:", oldPublicId);
-        await deleteFromCloudinary(oldPublicId).catch(() => {});
+        await deleteFromCloudinary(oldPublicId).catch(() => { });
       }
 
       const base64Data = profileImage.split(",")[1];
@@ -621,7 +758,7 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (req.file?.buffer) {
     console.log("📸 Processing file from multer...");
     const oldPublicId = user?.avatar?.public_id;
-    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => {});
+    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => { });
 
     const upload = await uploadOnCloudinary(req.file.buffer, {
       folder: "docmobi/users",
@@ -1000,7 +1137,7 @@ export const deleteUser = catchAsync(async (req, res) => {
 
   // best-effort cleanup of avatar
   if (user.avatar?.public_id) {
-    await deleteFromCloudinary(user.avatar.public_id).catch(() => {});
+    await deleteFromCloudinary(user.avatar.public_id).catch(() => { });
   }
 
   await User.findByIdAndDelete(id);

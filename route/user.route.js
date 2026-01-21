@@ -14,6 +14,7 @@ import {
   deleteUser,
   updateLocation,
   searchDoctors,
+  getNearbyDoctors,
 } from "../controller/user.controller.js";
 import { protect, isAdmin } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -27,6 +28,11 @@ router.get("/me/dependents", protect, getMyDependents);
 router.post("/me/dependents", protect, addDependent);
 router.patch("/me/dependents/:dependentId", protect, updateDependent);
 router.delete("/me/dependents/:dependentId", protect, deleteDependent);
+//update user (patient only)
+router.patch("/update-realtime-location", protect, updateLocation);
+router.post("/find-doctors", searchDoctors);
+router.get("/role/doctor/nearby", getNearbyDoctors); // ✅ Must be before /role/:role
+
 router.get("/role/:role", getUsersByRole);
 router.get("/dashboard/overview", protect, isAdmin, getDashboardOverview);
 router.get("/:id", protect, getUserDetails);
