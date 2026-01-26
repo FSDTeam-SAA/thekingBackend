@@ -9,6 +9,7 @@ import { User } from "../model/user.model.js";
 import { ReferralCode } from "../model/referralCode.model.js";
 import mongoose from "mongoose";
 import { createNotification } from "../utils/notify.js";
+import { io } from "../server.js";
 
 const normalizeRole = (role) => {
   const r = String(role || "patient")
@@ -193,7 +194,7 @@ export const register = catchAsync(async (req, res) => {
     //TODO: sent notification to all patients about new doctor registration
     const patients = await User.find({ role: "patient" });
     await Promise.all(
-      patients.map((patient) =>
+      patients.map(async (patient) => {
         createNotification({
           userId: patient._id,
           fromUserId: patient._id,
@@ -201,8 +202,20 @@ export const register = catchAsync(async (req, res) => {
           title: "New Doctor Registered",
           content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
           meta: { doctorId: newUser._id, doctorName: newUser.fullName },
-        }),
-      ),
+        });
+
+        //sent notifaication by socket too (if online)
+        io.to(patient._id.toString()).emit("notification:newDoctor", {
+          type: "doctor_signup",
+          title: "New Doctor Registered",
+          content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
+          meta: {
+            doctorId: newUser._id,
+            doctorName: newUser.fullName,
+            specialty: newUser.specialty,
+          },
+        });
+      }),
     );
 
     sendResponse(res, {

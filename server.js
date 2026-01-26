@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import router from "./mainroute/index.js";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import chalk from "chalk";
 
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFound from "./middleware/notFound.js";
@@ -17,7 +18,7 @@ app.set("trust proxy", true);
 const server = createServer(app);
 export const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: ["*"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   },
 });
@@ -25,14 +26,14 @@ export const io = new Server(server, {
 app.use(
   cors({
     credentials: true,
-    origin: "*",
+    origin: ["*"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  })
+  }),
 );
 
 // ✅ Increased payload limit for base64 images
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
 app.use("/public", express.static("public"));
@@ -52,14 +53,49 @@ app.get("/", (req, res) => {
 app.use(globalErrorHandler);
 app.use(notFound);
 
+//  connect to MongoDB and start the server
+
+const mongoConnect = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_DB_URL);
+    console.log("------------------------------------");
+    console.log(
+      chalk.yellow.bold(
+        "MongoDB connected successfully:",
+        conn.connection.host,
+      ),
+    );
+  } catch (err) {
+    console.error(chalk.red.bold("MongoDB connection error:", err));
+    process.exit(1);
+  }
+};
+await mongoConnect().then(() => {
+  const PORT = process.env.PORT || 5000;
+  try {
+    server.listen(PORT, () => {
+      console.log(chalk.green.bold(`Server is running on http://localhost:${PORT}  `));
+    });
+  } catch (error) {
+    console.error(chalk.red.bold("Server error:", error));
+    process.exit(1);
+  }
+});
 // Socket.IO connection handling
 io.on("connection", (socket) => {
   console.log("🔌 A client connected:", socket.id);
+  const userId = socket.handshake.query.userId;
+  if (userId) {
+    socket.join(userId);
+    console.log(`👤 joined user room: ${userId}`);
+  }
 
   socket.on("joinUserRoom", (userId) => {
     if (userId) {
       socket.join(`chat_${userId}`);
-      console.log(`👤 Client ${socket.id} joined user signaling room: ${userId}`);
+      console.log(
+        `👤 Client ${socket.id} joined user signaling room: ${userId}`,
+      );
     }
   });
 
@@ -150,35 +186,6 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected:", socket.id);
   });
-});
-
-const PORT = process.env.PORT || 5005;
-server.listen(PORT, async () => {
-  console.log("═══════════════════════════════════════════════");
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log("═══════════════════════════════════════════════");
-
-  // Firebase/FCM removed - now using local polling notification system
-  console.log("✅ Local notification system ready");
-
-  try {
-    await mongoose.connect(process.env.MONGO_DB_URL);
-    console.log("✅ MongoDB connected successfully");
-    console.log("═══════════════════════════════════════════════");
-    console.log("📋 Available Routes:");
-    console.log("   - /api/v1/auth");
-    console.log("   - /api/v1/user");
-    console.log("   - /api/v1/appointment");
-    console.log("   - /api/v1/posts          ✅ (plural)");
-    console.log("   - /api/v1/reels          ✅ (plural)");
-    console.log("   - /api/v1/chat");
-    console.log("   - /api/v1/notification");
-    console.log("   - /api/v1/doctor-review");
-    console.log("═══════════════════════════════════════════════");
-  } catch (err) {
-    console.error("❌ MongoDB connection error:", err);
-    process.exit(1);
-  }
 });
 
 export default app;

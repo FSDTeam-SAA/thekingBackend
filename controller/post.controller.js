@@ -9,6 +9,9 @@ import {
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
+import mongoose from "mongoose";
+import { createNotification } from "../utils/notify.js";
+import { io } from "../server.js";
 
 /**
  * Create a post
@@ -44,7 +47,10 @@ export const createPost = catchAsync(async (req, res) => {
     media,
   });
 
-  const populated = await post.populate("author", "fullName avatar role specialty");
+  const populated = await post.populate(
+    "author",
+    "fullName avatar role specialty",
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -334,7 +340,7 @@ export const updatePost = catchAsync(async (req, res) => {
   if (!isOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only author or admin can update this post"
+      "Only author or admin can update this post",
     );
   }
 
@@ -377,7 +383,10 @@ export const updatePost = catchAsync(async (req, res) => {
 
   await post.save();
 
-  const populated = await post.populate("author", "fullName avatar role specialty");
+  const populated = await post.populate(
+    "author",
+    "fullName avatar role specialty",
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -401,7 +410,7 @@ export const deletePost = catchAsync(async (req, res) => {
   if (!isOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only author or admin can delete this post"
+      "Only author or admin can delete this post",
     );
   }
 
@@ -424,39 +433,86 @@ export const deletePost = catchAsync(async (req, res) => {
 /**
  * Toggle like / unlike a post
  */
+
 export const toggleLikePost = catchAsync(async (req, res) => {
   const userId = req.user._id;
   const { id: postId } = req.params;
 
-  const post = await Post.findById(postId);
-  if (!post) {
-    throw new AppError(httpStatus.NOT_FOUND, "Post not found");
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Fetch post and populate author
+    const post = await Post.findById(postId)
+      .populate("author")
+      .session(session);
+    if (!post) {
+      throw new AppError(httpStatus.NOT_FOUND, "Post not found");
+    }
+
+    const existing = await PostLike.findOne({
+      post: postId,
+      user: userId,
+    }).session(session);
+
+    let liked;
+    if (existing) {
+      //  Dislike
+      await existing.deleteOne({ session });
+      post.likesCount = Math.max(0, (post.likesCount || 0) - 1);
+      liked = false;
+    } else {
+      // Like
+      await PostLike.create([{ post: postId, user: userId }], { session });
+      post.likesCount = (post.likesCount || 0) + 1;
+      liked = true;
+
+      // Send notification only if liker is not the author
+      if (!post.author._id.equals(userId)) {
+        
+        const notificationPayload = {
+          userId: post.author._id,
+          fromUserId: userId,
+          type: "post_liked",
+          title: "Your post got a like!",
+          content: `${req.user.fullName} liked your post.`,
+          meta: {
+            postId: post._id,
+            likerId: userId,
+            likerName: req.user.fullName,
+          },
+        };
+
+        // Save notification in DB
+        await createNotification({ ...notificationPayload, session });
+
+        // Emit via socket if online
+        io.to(post.author._id.toString()).emit(
+          "like_post_notification",
+          notificationPayload,
+        );
+      }
+    }
+
+    await post.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: liked ? "Post liked" : "Post unliked",
+      data: {
+        liked,
+        likesCount: post.likesCount,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
-
-  const existing = await PostLike.findOne({ post: postId, user: userId });
-
-  let liked;
-  if (existing) {
-    await existing.deleteOne();
-    post.likesCount = Math.max(0, (post.likesCount || 0) - 1);
-    liked = false;
-  } else {
-    await PostLike.create({ post: postId, user: userId });
-    post.likesCount = (post.likesCount || 0) + 1;
-    liked = true;
-  }
-
-  await post.save();
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: liked ? "Post liked" : "Post unliked",
-    data: {
-      liked,
-      likesCount: post.likesCount,
-    },
-  });
 });
 
 /**
@@ -505,7 +561,7 @@ export const addPostComment = catchAsync(async (req, res) => {
   if (!content || !String(content).trim()) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "content is required for comment"
+      "content is required for comment",
     );
   }
 
@@ -524,6 +580,28 @@ export const addPostComment = catchAsync(async (req, res) => {
   await post.save();
 
   const populated = await comment.populate("author", "fullName avatar role");
+
+  // Send notification to post author if commenter is not the author
+  if (!post.author._id.equals(userId)) {
+    const notificationPayload = {
+      userId: post.author._id,
+      fromUserId: userId,
+      type: "post_commented",
+      title: "Your post got a comment!",
+      content: `${req.user.fullName} commented on your post.`,
+      meta: {
+        postId: post._id,
+        commenterId: userId,
+        commenterName: req.user.fullName,
+      },
+    };
+    // Save notification in DB
+    await createNotification({ ...notificationPayload });
+    // Emit via socket if online
+    io.to(post.author._id.toString()).emit("post_comment_notification", {
+      ...notificationPayload,
+    });
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -586,7 +664,7 @@ export const deletePostComment = catchAsync(async (req, res) => {
   if (!isOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only comment author or admin can delete this comment"
+      "Only comment author or admin can delete this comment",
     );
   }
 
