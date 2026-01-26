@@ -4,17 +4,25 @@ import mongoose, { Schema } from "mongoose";
 const notificationSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true }, // receiver
-    fromUserId: { type: Schema.Types.ObjectId, ref: "User" },            // sender (optional)
+    fromUserId: { type: Schema.Types.ObjectId, ref: "User" }, // sender (optional)
 
     type: {
       type: String,
-      enum: [
-        "doctor_signup",
-        "doctor_approved",
-        "appointment_created",
-        "appointment_status_change",
-      ],
-      required: true,
+      enum: {
+        values: [
+          "doctor_signup",
+          "doctor_approved",
+          "appointment_booked",
+          "appointment_status_change",
+          "liked_post",
+          "commented_post",
+          "reel_liked",
+          "reel_commented",
+        ],
+        message:
+          "Invalid notification type. Allowed values: doctor_signup, doctor_approved, appointment_created, appointment_status_change",
+      },
+      required: [true, "Notification type is required"],
     },
 
     title: { type: String, required: true },
@@ -26,7 +34,7 @@ const notificationSchema = new Schema(
 
     isRead: { type: Boolean, default: false },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export const Notification = mongoose.model("Notification", notificationSchema);
