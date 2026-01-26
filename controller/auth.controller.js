@@ -74,7 +74,10 @@ export const register = catchAsync(async (req, res) => {
     role,
     specialty,
     medicalLicenseNumber,
+    refferalCode,
   } = req.body;
+  console.log(refferalCode);
+  
 
   if (!email || !password || !fullName) {
     throw new AppError(httpStatus.BAD_REQUEST, "Please fill in all fields");
@@ -95,6 +98,14 @@ export const register = catchAsync(async (req, res) => {
       "Medical license number is required for doctors"
     );
   }
+
+ return sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Processing registration...",
+    data: { ...req.body },
+  });
+return;
 
   // duplicates check
   const existingUser = await User.findOne({
