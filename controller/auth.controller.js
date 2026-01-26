@@ -6,53 +6,55 @@ import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
 import { sendEmail, otpEmailTemplate } from "../utils/sendEmail.js"; // ✅ FIXED: Added otpEmailTemplate
 import { User } from "../model/user.model.js";
+import { ReferralCode } from "../model/referralCode.model.js";
+import mongoose from "mongoose";
 
 const normalizeRole = (role) => {
-  const r = String(role || "patient").toLowerCase().trim();
+  const r = String(role || "patient")
+    .toLowerCase()
+    .trim();
   if (!["patient", "doctor", "admin"].includes(r)) {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
   }
   return r;
 };
 
-
-
 // ✅ NEW: Verify OTP Only (without resetting password)
 export const verifyOTP = catchAsync(async (req, res) => {
   const { email, otp } = req.body;
 
-  console.log('🔍 Verifying OTP for:', email);
-  console.log('🔑 OTP provided:', otp);
+  console.log("🔍 Verifying OTP for:", email);
+  console.log("🔑 OTP provided:", otp);
 
   const user = await User.isUserExistsByEmail(email);
   if (!user) {
-    console.log('❌ User not found');
+    console.log("❌ User not found");
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
   if (!user.password_reset_token) {
-    console.log('❌ No reset token found');
+    console.log("❌ No reset token found");
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "No OTP request found. Please request a new OTP."
+      "No OTP request found. Please request a new OTP.",
     );
   }
 
   let decoded;
   try {
     decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
-    console.log('✅ Token verified. OTP from token:', decoded.otp);
+    console.log("✅ Token verified. OTP from token:", decoded.otp);
   } catch (error) {
-    console.log('❌ Token verification failed');
+    console.log("❌ Token verification failed");
     throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
   }
 
   if (decoded.otp !== otp) {
-    console.log('❌ OTP mismatch');
+    console.log("❌ OTP mismatch");
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
   }
 
-  console.log('✅ OTP verified successfully');
+  console.log("✅ OTP verified successfully");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -62,83 +64,133 @@ export const verifyOTP = catchAsync(async (req, res) => {
   });
 });
 
-
 export const register = catchAsync(async (req, res) => {
-  const {
-    phone,
-    fullName,
-    email,
-    password,
-    confirmPassword,
-    experienceYears,
-    role,
-    specialty,
-    medicalLicenseNumber,
-    refferalCode,
-  } = req.body;
-  console.log(refferalCode);
-  
+  const session = await mongoose.startSession();
 
-  if (!email || !password || !fullName) {
-    throw new AppError(httpStatus.BAD_REQUEST, "Please fill in all fields");
-  }
+  try {
+    session.startTransaction();
 
-  if (password !== confirmPassword) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "Password and confirm password do not match"
+    const {
+      phone,
+      fullName,
+      email,
+      password,
+      confirmPassword,
+      experienceYears,
+      role,
+      specialty,
+      medicalLicenseNumber,
+      refferalCode,
+    } = req.body;
+
+    // basic validation
+    if (!email || !password || !fullName) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Please fill in all fields");
+    }
+
+    if (password !== confirmPassword) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Password and confirm password do not match",
+      );
+    }
+
+    const roleNormalized = normalizeRole(role);
+
+    if (roleNormalized === "doctor" && !medicalLicenseNumber) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Medical license number is required for doctors",
+      );
+    }
+
+    // duplicate check (inside transaction)
+    const existingUser = await User.findOne(
+      {
+        $or: [
+          { email },
+          ...(phone ? [{ phone }] : []),
+          ...(medicalLicenseNumber ? [{ medicalLicenseNumber }] : []),
+        ],
+      },
+      null,
+      { session },
     );
-  }
 
-  const roleNormalized = normalizeRole(role);
+    if (existingUser) {
+      let message = "User already exists";
+      if (existingUser.email === email) message = "Email already exists";
+      else if (phone && existingUser.phone === phone)
+        message = "Phone already exists";
+      else if (
+        medicalLicenseNumber &&
+        existingUser.medicalLicenseNumber === medicalLicenseNumber
+      )
+        message = "Medical license number already exists";
 
-  if (roleNormalized === "doctor" && !medicalLicenseNumber) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "Medical license number is required for doctors"
+      throw new AppError(httpStatus.BAD_REQUEST, message);
+    }
+
+    // referral code validation (inside transaction)
+    const referral = await ReferralCode.findOne(
+      { code: refferalCode, isActive: true },
+      null,
+      {
+        session,
+      },
     );
+
+    if (!referral) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
+    }
+
+    const exp = Number(experienceYears);
+    const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
+
+    // create user
+    const [newUser] = await User.create(
+      [
+        {
+          phone,
+          fullName,
+          email,
+          password,
+          experienceYears: expSafe,
+          role: roleNormalized,
+          specialty,
+          medicalLicenseNumber:
+            roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
+          verificationInfo: { token: "" },
+          refferalCode,
+        },
+      ],
+      { session },
+    );
+
+    if (!newUser) {
+      throw new AppError(httpStatus.BAD_REQUEST, "User registration failed");
+    }
+
+    // update referral usage
+    referral.timesUsed += 1;
+    await referral.save({ session });
+
+    // commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "Registered successfully",
+      data: null,
+    });
+  } catch (error) {
+    // rollback on error
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
-
-  // duplicates check
-  const existingUser = await User.findOne({
-    $or: [
-      { email },
-      ...(phone ? [{ phone }] : []),
-      ...(medicalLicenseNumber ? [{ medicalLicenseNumber }] : []),
-    ],
-  });
-
-  if (existingUser) {
-    let message = "User already exists";
-    if (existingUser.email === email) message = "Email already exists";
-    else if (phone && existingUser.phone === phone) message = "Phone already exists";
-    else if (medicalLicenseNumber && existingUser.medicalLicenseNumber === medicalLicenseNumber)
-      message = "Medical license number already exists";
-    throw new AppError(httpStatus.BAD_REQUEST, message);
-  }
-
-  const exp = Number(experienceYears);
-  const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
-
-  const newUser = await User.create({
-    phone,
-    fullName,
-    email,
-    password,
-    experienceYears: expSafe,
-    role: roleNormalized,
-    specialty,
-    medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
-    verificationInfo: { token: "" },
-    refferalCode,
-  });
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Registered successfully",
-    data: null,
-  });
 });
 
 export const login = catchAsync(async (req, res) => {
@@ -147,7 +199,10 @@ export const login = catchAsync(async (req, res) => {
   const user = await User.isUserExistsByEmail(email);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
-  if (user?.password && !(await User.isPasswordMatched(password, user.password))) {
+  if (
+    user?.password &&
+    !(await User.isPasswordMatched(password, user.password))
+  ) {
     throw new AppError(httpStatus.FORBIDDEN, "Password is not correct");
   }
 
@@ -155,7 +210,7 @@ export const login = catchAsync(async (req, res) => {
   if (user.role === "doctor" && user.approvalStatus !== "approved") {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      `Your account is currently ${user.approvalStatus}. Please wait for admin approval.`
+      `Your account is currently ${user.approvalStatus}. Please wait for admin approval.`,
     );
   }
 
@@ -164,13 +219,13 @@ export const login = catchAsync(async (req, res) => {
   const accessToken = createToken(
     jwtPayload,
     process.env.JWT_ACCESS_SECRET,
-    process.env.JWT_ACCESS_EXPIRES_IN
+    process.env.JWT_ACCESS_EXPIRES_IN,
   );
 
   const refreshToken = createToken(
     jwtPayload,
     process.env.JWT_REFRESH_SECRET,
-    process.env.JWT_REFRESH_EXPIRES_IN
+    process.env.JWT_REFRESH_EXPIRES_IN,
   );
 
   user.refreshToken = refreshToken;
@@ -201,38 +256,41 @@ export const login = catchAsync(async (req, res) => {
 export const forgetPassword = catchAsync(async (req, res) => {
   const { email } = req.body;
 
-  console.log('📧 Forgot password request for:', email);
+  console.log("📧 Forgot password request for:", email);
 
   const user = await User.isUserExistsByEmail(email);
   if (!user) {
-    console.log('❌ User not found:', email);
+    console.log("❌ User not found:", email);
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
-  console.log('✅ User found:', user.fullName);
+  console.log("✅ User found:", user.fullName);
 
   const otp = generateOTP();
-  console.log('🔑 Generated OTP:', otp); // Remove in production
+  console.log("🔑 Generated OTP:", otp); // Remove in production
 
   const otpToken = createToken(
     { otp },
     process.env.OTP_SECRET,
-    process.env.OTP_EXPIRE
+    process.env.OTP_EXPIRE,
   );
 
   user.password_reset_token = otpToken;
   await user.save();
 
-  console.log('💾 OTP token saved to database');
+  console.log("💾 OTP token saved to database");
 
   // ✅ Use the OTP email template
   try {
     const emailHtml = otpEmailTemplate(otp, user.fullName);
     await sendEmail(user.email, "Password Reset OTP - DocMobi", emailHtml);
-    console.log('✅ Email sent successfully to:', user.email);
+    console.log("✅ Email sent successfully to:", user.email);
   } catch (emailError) {
-    console.error('❌ Email sending failed:', emailError);
-    throw new AppError(httpStatus.INTERNAL_SERVER_ERROR, "Failed to send email. Please try again.");
+    console.error("❌ Email sending failed:", emailError);
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      "Failed to send email. Please try again.",
+    );
   }
 
   sendResponse(res, {
@@ -247,44 +305,44 @@ export const forgetPassword = catchAsync(async (req, res) => {
 export const resetPassword = catchAsync(async (req, res) => {
   const { email, otp, password } = req.body;
 
-  console.log('🔄 Reset password request for:', email);
-  console.log('🔑 OTP provided:', otp);
+  console.log("🔄 Reset password request for:", email);
+  console.log("🔑 OTP provided:", otp);
 
   const user = await User.isUserExistsByEmail(email);
   if (!user) {
-    console.log('❌ User not found:', email);
+    console.log("❌ User not found:", email);
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
   if (!user.password_reset_token) {
-    console.log('❌ No reset token found for user');
+    console.log("❌ No reset token found for user");
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Password reset token is invalid or expired"
+      "Password reset token is invalid or expired",
     );
   }
 
   let decoded;
   try {
     decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
-    console.log('✅ Token verified. OTP from token:', decoded.otp);
+    console.log("✅ Token verified. OTP from token:", decoded.otp);
   } catch (error) {
-    console.log('❌ Token verification failed:', error.message);
+    console.log("❌ Token verification failed:", error.message);
     throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
   }
 
   if (decoded.otp !== otp) {
-    console.log('❌ OTP mismatch. Expected:', decoded.otp, 'Got:', otp);
+    console.log("❌ OTP mismatch. Expected:", decoded.otp, "Got:", otp);
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
   }
 
-  console.log('✅ OTP verified successfully');
+  console.log("✅ OTP verified successfully");
 
   user.password = password;
   user.password_reset_token = undefined;
   await user.save();
 
-  console.log('✅ Password updated successfully');
+  console.log("✅ Password updated successfully");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -300,13 +358,13 @@ export const changePassword = catchAsync(async (req, res) => {
   if (!oldPassword || !newPassword) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Old password and new password are required"
+      "Old password and new password are required",
     );
   }
   if (oldPassword === newPassword) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Old password and new password cannot be same"
+      "Old password and new password cannot be same",
     );
   }
 
@@ -314,7 +372,8 @@ export const changePassword = catchAsync(async (req, res) => {
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
   const matched = await User.isPasswordMatched(oldPassword, user.password);
-  if (!matched) throw new AppError(httpStatus.UNAUTHORIZED, "Current password wrong");
+  if (!matched)
+    throw new AppError(httpStatus.UNAUTHORIZED, "Current password wrong");
 
   user.password = newPassword;
   await user.save();
@@ -344,13 +403,13 @@ export const refreshToken = catchAsync(async (req, res) => {
   const accessToken = createToken(
     jwtPayload,
     process.env.JWT_ACCESS_SECRET,
-    process.env.JWT_ACCESS_EXPIRES_IN
+    process.env.JWT_ACCESS_EXPIRES_IN,
   );
 
   const refreshToken1 = createToken(
     jwtPayload,
     process.env.JWT_REFRESH_SECRET,
-    process.env.JWT_REFRESH_EXPIRES_IN
+    process.env.JWT_REFRESH_EXPIRES_IN,
   );
 
   user.refreshToken = refreshToken1;
@@ -365,7 +424,11 @@ export const refreshToken = catchAsync(async (req, res) => {
 });
 
 export const logout = catchAsync(async (req, res) => {
-  await User.findByIdAndUpdate(req.user?._id, { refreshToken: "" }, { new: true });
+  await User.findByIdAndUpdate(
+    req.user?._id,
+    { refreshToken: "" },
+    { new: true },
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

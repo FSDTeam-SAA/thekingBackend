@@ -5,10 +5,13 @@ const referralCodeSchema = new Schema(
     code: { type: String, required: true, unique: true, trim: true, uppercase: true },
     description: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
-    timesUsed: { type: Number, default: 0, min: 0 },
+    timesUsed: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true }
 );
+
+
+
 
 const normalizeCode = (codeValue) => {
   const normalized = String(codeValue || "").trim().toUpperCase();
