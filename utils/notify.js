@@ -6,6 +6,9 @@ import { User } from "../model/user.model.js";
  * Create notification and store in database
  * Simple version without FCM/Cloud Messaging
  */
+
+//type enums: doctor_signup, doctor_approved, appointment_created, appointment_status_change
+
 export const createNotification = async ({
   userId,
   fromUserId,
@@ -17,8 +20,19 @@ export const createNotification = async ({
 }) => {
   try {
     if (!userId || !type || !title || !content) {
-      console.log('⚠️ Missing required fields for notification');
-      return { success: false, message: 'Missing required fields' };
+      console.log("⚠️ Missing required fields for notification");
+      return { success: false, message: "Missing required fields" };
+    }
+    //check type is valid
+    const validTypes = [
+      "doctor_signup",
+      "doctor_approved",
+      "appointment_created",
+      "appointment_status_change",
+    ];
+    if (!validTypes.includes(type)) {
+      console.log(`Invalid notification type: ${type}`);
+      return { success: false, message: "Invalid notification type" };
     }
 
     // Create database notification
@@ -37,14 +51,14 @@ export const createNotification = async ({
     return {
       success: true,
       notificationId: notification._id,
-      message: 'Notification created successfully'
+      message: "Notification created successfully",
     };
   } catch (error) {
-    console.error('❌ Error creating notification:', error);
+    console.error("❌ Error creating notification:", error);
     return {
       success: false,
-      message: 'Failed to create notification',
-      error: error.message
+      message: "Failed to create notification",
+      error: error.message,
     };
   }
 };
@@ -54,19 +68,21 @@ export const createNotification = async ({
  */
 const getClickAction = (type, appointmentId) => {
   switch (type) {
-    case 'appointment_confirmed':
-    case 'appointment_cancelled':
-    case 'appointment_reminder':
-      return appointmentId ? `/appointment-details/${appointmentId}` : '/appointments';
-    
-    case 'new_message':
-      return '/messages';
-    
-    case 'incoming_call':
-      return '/calls';
-    
+    case "appointment_confirmed":
+    case "appointment_cancelled":
+    case "appointment_reminder":
+      return appointmentId
+        ? `/appointment-details/${appointmentId}`
+        : "/appointments";
+
+    case "new_message":
+      return "/messages";
+
+    case "incoming_call":
+      return "/calls";
+
     default:
-      return '/notifications';
+      return "/notifications";
   }
 };
 
@@ -84,11 +100,11 @@ export const createBulkNotification = async ({
 }) => {
   try {
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-      return { success: false, message: 'User IDs array is required' };
+      return { success: false, message: "User IDs array is required" };
     }
 
     // Create notifications for all users
-    const notifications = userIds.map(userId => ({
+    const notifications = userIds.map((userId) => ({
       userId,
       fromUserId,
       type,
@@ -99,20 +115,22 @@ export const createBulkNotification = async ({
     }));
 
     const createdNotifications = await Notification.insertMany(notifications);
-    console.log(`✅ Bulk notifications created: ${type} for ${userIds.length} users`);
+    console.log(
+      `✅ Bulk notifications created: ${type} for ${userIds.length} users`,
+    );
 
     return {
       success: true,
-      notificationIds: createdNotifications.map(n => n._id),
+      notificationIds: createdNotifications.map((n) => n._id),
       count: createdNotifications.length,
-      message: 'Bulk notifications created successfully'
+      message: "Bulk notifications created successfully",
     };
   } catch (error) {
-    console.error('❌ Error creating bulk notifications:', error);
+    console.error("❌ Error creating bulk notifications:", error);
     return {
       success: false,
-      message: 'Failed to create bulk notifications',
-      error: error.message
+      message: "Failed to create bulk notifications",
+      error: error.message,
     };
   }
 };
@@ -121,7 +139,12 @@ export const createBulkNotification = async ({
  * Legacy function for backward compatibility
  * @deprecated Use createNotification instead
  */
-export const createSimpleNotification = async (userId, type, title, content) => {
+export const createSimpleNotification = async (
+  userId,
+  type,
+  title,
+  content,
+) => {
   return await createNotification({
     userId,
     type,

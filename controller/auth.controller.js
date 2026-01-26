@@ -8,6 +8,7 @@ import { sendEmail, otpEmailTemplate } from "../utils/sendEmail.js"; // ✅ FIXE
 import { User } from "../model/user.model.js";
 import { ReferralCode } from "../model/referralCode.model.js";
 import mongoose from "mongoose";
+import { createNotification } from "../utils/notify.js";
 
 const normalizeRole = (role) => {
   const r = String(role || "patient")
@@ -166,10 +167,20 @@ export const register = catchAsync(async (req, res) => {
       ],
       { session },
     );
-
     if (!newUser) {
       throw new AppError(httpStatus.BAD_REQUEST, "User registration failed");
     }
+
+    //!! TODO: only for testing use this to remove user,
+
+    //!start remove user
+    // const deleteNewUser = await User.findByIdAndDelete(newUser._id, {
+    //   session,
+    // });
+    // if (!deleteNewUser) {
+    //   throw new AppError(httpStatus.BAD_REQUEST, "User registration failed");
+    // }
+    //!end remove user
 
     // update referral usage
     referral.timesUsed += 1;
@@ -179,6 +190,21 @@ export const register = catchAsync(async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    //TODO: sent notification to all patients about new doctor registration
+    const patients = await User.find({ role: "patient" });
+    await Promise.all(
+      patients.map((patient) =>
+        createNotification({
+          userId: patient._id,
+          fromUserId: patient._id,
+          type: "doctor_signup",
+          title: "New Doctor Registered",
+          content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
+          meta: { doctorId: newUser._id, doctorName: newUser.fullName },
+        }),
+      ),
+    );
+
     sendResponse(res, {
       statusCode: httpStatus.OK,
       success: true,
@@ -187,7 +213,7 @@ export const register = catchAsync(async (req, res) => {
     });
   } catch (error) {
     // rollback on error
-    await session.abortTransaction();
+    // await session.abortTransaction();
     session.endSession();
     throw error;
   }
