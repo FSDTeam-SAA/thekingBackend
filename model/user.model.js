@@ -189,9 +189,14 @@ const userSchema = new Schema(
     referralCode: {
       type: String,
       default: () => Math.random().toString(36).substr(2, 9).toUpperCase(),
+      
     },
 
-    registrationReferralCode: { type: String, trim: true },
+    registrationReferralCode: {
+      refferredBy: { type: String, default: "" },
+      usedAt: { type: Date }, 
+      required:true
+    },
 
     dependents: { type: [dependentSchema], default: [] },
 

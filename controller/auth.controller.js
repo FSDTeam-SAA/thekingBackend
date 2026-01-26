@@ -99,14 +99,6 @@ export const register = catchAsync(async (req, res) => {
     );
   }
 
- return sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Processing registration...",
-    data: { ...req.body },
-  });
-return;
-
   // duplicates check
   const existingUser = await User.findOne({
     $or: [
@@ -138,6 +130,7 @@ return;
     specialty,
     medicalLicenseNumber: roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
     verificationInfo: { token: "" },
+    refferalCode,
   });
 
   sendResponse(res, {
