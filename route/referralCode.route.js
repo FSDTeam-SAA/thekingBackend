@@ -5,7 +5,6 @@ import {
   getReferralCodes,
   getReferralCode,
   updateReferralCode,
-  updateReferralCodeStatus,
   deleteReferralCode,
 } from "../controller/referralCode.controller.js";
 
@@ -13,15 +12,12 @@ const router = express.Router();
 
 router.use(protect, isAdmin);
 
-router.route("/")
-  .post(createReferralCode)
-  .get(getReferralCodes);
+// router.get("/unread-count", protect, getUnreadCount);
 
-router.route("/:id")
-  .get(getReferralCode)
-  .patch(updateReferralCode)
-  .delete(deleteReferralCode);
-
-router.patch("/:id/status", updateReferralCodeStatus);
+router.post("/create-referral-code", createReferralCode);
+router.get("/get-referral-codes", getReferralCodes);
+router.get("/get-referral-code/:id", getReferralCode);
+router.patch("/update-referral-code/:id", updateReferralCode);
+router.delete("/delete-referral-code/:id", deleteReferralCode);  
 
 export default router;

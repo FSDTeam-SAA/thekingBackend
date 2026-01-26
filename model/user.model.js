@@ -186,17 +186,13 @@ const userSchema = new Schema(
 
     country: { type: String, default: "" },
 
-    referralCode: {
-      type: String,
-      default: () => Math.random().toString(36).substr(2, 9).toUpperCase(),
-      
-    },
-
-    registrationReferralCode: {
-      refferredBy: { type: String, default: "" },
-      usedAt: { type: Date }, 
-      required:true
-    },
+    referralCode: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ReferralCode",
+        default: null,
+      },
+    ],
 
     dependents: { type: [dependentSchema], default: [] },
 
@@ -273,6 +269,7 @@ userSchema.pre("save", async function (next) {
       return addr;
     });
   }
+
 
   if (this.isModified("weeklySchedule") && Array.isArray(this.weeklySchedule)) {
     for (const d of this.weeklySchedule) {

@@ -105,43 +105,23 @@ export const updateReferralCode = catchAsync(async (req, res) => {
   });
 });
 
-export const updateReferralCodeStatus = catchAsync(async (req, res) => {
-  const { id } = req.params;
-  const { isActive } = req.body;
-
-  if (typeof isActive !== "boolean") {
-    throw new AppError(httpStatus.BAD_REQUEST, "isActive must be a boolean");
-  }
-
-  const referralCode = await ReferralCode.findById(id);
-
-  if (!referralCode) {
-    throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
-  }
-
-  referralCode.isActive = isActive;
-  await referralCode.save();
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: isActive ? "Referral code activated" : "Referral code deactivated",
-    data: referralCode,
-  });
-});
-
 export const deleteReferralCode = catchAsync(async (req, res) => {
   const { id } = req.params;
-  const referralCode = await ReferralCode.findByIdAndDelete(id);
-
+  const referralCode = await ReferralCode.findOne({ _id: id });
   if (!referralCode) {
     throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
   }
-
+if(referralCode.timesUsed > 0){
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Referral code cannot be deleted after doctors have registered with it"
+    );
+  }
+  await ReferralCode.deleteOne({ _id: id });
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Referral code deleted successfully",
-    data: null,
+    data: referralCode,
   });
 });
