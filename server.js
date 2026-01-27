@@ -7,11 +7,14 @@ import router from "./mainroute/index.js";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import chalk from "chalk";
+import morgan from "morgan";
 
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFound from "./middleware/notFound.js";
 
 const app = express();
+
+app.use(morgan("dev"));
 
 app.set("trust proxy", true);
 
@@ -38,11 +41,11 @@ app.use(cookieParser());
 
 app.use("/public", express.static("public"));
 
-// ✅ Request logger middleware (optional - for debugging)
-app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.path}`);
-  next();
-});
+// // ✅ Request logger middleware (optional - for debugging)
+// app.use((req, res, next) => {
+//   console.log(`📥 ${req.method} ${req.path}`);
+//   next();
+// });
 
 app.use("/api/v1", router);
 

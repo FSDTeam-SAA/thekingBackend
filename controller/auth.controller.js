@@ -113,6 +113,13 @@ export const register = catchAsync(async (req, res) => {
       );
     }
 
+    if (roleNormalized === "patient" && refferalCode) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Referral code is not required for patients",
+      );
+    }
+
     // referral code validation (inside transaction)
     const referral = await ReferralCode.findOne(
       { code: refferalCode, isActive: true },
