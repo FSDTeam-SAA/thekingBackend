@@ -43,6 +43,39 @@ socket.on("reel_like_notification", (notification) => {
   console.log("   Content:", notification.content);
 });
 
+// Appointment Notifications
+socket.on("appointment_booked", (notification) => {
+  console.log("📅 New Appointment Booked:");
+  console.log("   Title:", notification.title);
+  console.log("   Content:", notification.content);
+  console.log("   Meta:", notification.meta);
+});
+
+socket.on("appointment_confirmed", (notification) => {
+  console.log("✅ Appointment Confirmed:");
+  console.log("   Title:", notification.title);
+  console.log("   Content:", notification.content);
+});
+
+socket.on("appointment_status_change", (notification) => {
+  console.log("🔄 Appointment Status Changed:");
+  console.log("   Title:", notification.title);
+  console.log("   Content:", notification.content);
+  console.log("   Status:", notification.meta?.status);
+});
+
+socket.on("appointment_cancelled", (notification) => {
+  console.log("❌ Appointment Cancelled:");
+  console.log("   Title:", notification.title);
+  console.log("   Content:", notification.content);
+});
+
+socket.on("appointment_completed", (notification) => {
+  console.log("🎉 Appointment Completed:");
+  console.log("   Title:", notification.title);
+  console.log("   Content:", notification.content);
+});
+
 socket.on("disconnect", () => {
   console.log("❌ Disconnected from server");
 });

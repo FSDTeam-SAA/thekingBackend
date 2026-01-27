@@ -13,6 +13,9 @@ const notificationSchema = new Schema(
           "doctor_signup",
           "doctor_approved",
           "appointment_booked",
+          "appointment_confirmed",
+          "appointment_cancelled",
+          "appointment_completed",
           "appointment_status_change",
           "post_liked",
           "post_commented",
@@ -20,7 +23,7 @@ const notificationSchema = new Schema(
           "reel_commented",
         ],
         message:
-          "Invalid notification type. Allowed values: doctor_signup, doctor_approved, appointment_created, appointment_status_change",
+          "Invalid notification type. Allowed values: doctor_signup, doctor_approved, appointment_booked, appointment_confirmed, appointment_cancelled, appointment_completed, appointment_status_change, post_liked, post_commented, reel_liked, reel_commented",
       },
       required: [true, "Notification type is required"],
     },

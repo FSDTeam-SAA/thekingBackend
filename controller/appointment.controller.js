@@ -7,7 +7,9 @@ import sendResponse from "../utils/sendResponse.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/commonMethod.js";
 import { User } from "../model/user.model.js";
 import { Appointment } from "../model/appointment.model.js";
+import { Appointment } from "../model/appointment.model.js";
 import { createNotification } from "../utils/notify.js";
+import { io } from "../server.js";
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:MM
 
@@ -67,7 +69,7 @@ export const confirmAppointment = catchAsync(async (req, res) => {
 
   // Send notification to patient
   if (patient && status === 'accepted') {
-    await createNotification({
+    const notificationPayload = {
       userId: patient._id,
       fromUserId: doctor._id,
       type: 'appointment_confirmed',
@@ -81,7 +83,10 @@ export const confirmAppointment = catchAsync(async (req, res) => {
         patientId: patient._id,
         doctorId: doctor._id,
       },
-    });
+    };
+    await createNotification(notificationPayload);
+    // Emit socket event
+    io.to(patient._id.toString()).emit("appointment_confirmed", notificationPayload);
   }
 
   sendResponse(res, {
@@ -119,7 +124,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   const typeRaw = String(bookedForInput?.type || "").trim().toLowerCase();
 
   let bookingScope = "self";
-  
+
   if (!typeRaw) {
     bookingScope = "self";
   } else if (["self", "me", "myself"].includes(typeRaw)) {
@@ -145,31 +150,31 @@ export const createAppointment = catchAsync(async (req, res) => {
       bookedForInput?._id ||
       bookedForInput?.id;
 
-  if (!dependentId || !mongoose.Types.ObjectId.isValid(dependentId)) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "A valid dependentId is required when booking for a dependent"
-    );
-  }
+    if (!dependentId || !mongoose.Types.ObjectId.isValid(dependentId)) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "A valid dependentId is required when booking for a dependent"
+      );
+    }
 
-  const dependent =
-    (patient.dependents || []).find(
-      (dep) => String(dep._id) === String(dependentId)
-    ) || null;
+    const dependent =
+      (patient.dependents || []).find(
+        (dep) => String(dep._id) === String(dependentId)
+      ) || null;
 
-  if (!dependent) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "Dependent not found for the current user"
-    );
-  }
+    if (!dependent) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Dependent not found for the current user"
+      );
+    }
 
-  if (dependent.isActive === false) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "Dependent is inactive and cannot be used for booking"
-    );
-  }
+    if (dependent.isActive === false) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Dependent is inactive and cannot be used for booking"
+      );
+    }
 
     bookedForPayload = {
       type: "dependent",
@@ -259,10 +264,10 @@ export const createAppointment = catchAsync(async (req, res) => {
   });
 
   // 🔔 Notification – patient booked appointment → notify doctor
-  await createNotification({
+  const notificationPayload = {
     userId: doctor._id,
     fromUserId: patient._id,
-    type: "appointment_created",
+    type: "appointment_booked",
     title: "New appointment request",
     content: `${patient.fullName} requested an appointment on ${date} at ${time}.`,
     appointmentId: appointment._id,
@@ -274,7 +279,11 @@ export const createAppointment = catchAsync(async (req, res) => {
       patientName: patient.fullName,
       bookedFor: bookedForPayload,
     },
-  });
+  };
+
+  await createNotification(notificationPayload);
+  // Emit socket event
+  io.to(doctor._id.toString()).emit("appointment_booked", notificationPayload);
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -405,7 +414,7 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     // Otherwise, try to get it from patient's dependents
     if (appt.bookedFor?.type === "dependent" && appt.bookedFor?.dependentId) {
       const patient = appt.patient;
-      
+
       if (patient?.dependents && Array.isArray(patient.dependents)) {
         const dependent = patient.dependents.find(
           (dep) => String(dep._id) === String(appt.bookedFor.dependentId)
@@ -512,7 +521,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (medicalDocsFiles.length > 0) {
     for (const doc of appointment.medicalDocuments || []) {
       if (doc?.public_id) {
-        await deleteFromCloudinary(doc.public_id).catch(() => {});
+        await deleteFromCloudinary(doc.public_id).catch(() => { });
       }
     }
 
@@ -530,7 +539,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (paymentFiles[0]) {
     if (appointment.paymentScreenshot?.public_id) {
       await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
-        () => {}
+        () => { }
       );
     }
 
@@ -559,7 +568,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   const scheduleChanged =
     (updates.appointmentDate &&
       new Date(updates.appointmentDate).getTime() !==
-        new Date(appointment.appointmentDate).getTime()) ||
+      new Date(appointment.appointmentDate).getTime()) ||
     (updates.time && updates.time !== appointment.time);
 
   if (scheduleChanged) {
@@ -763,7 +772,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     // Determine notification type for FCM
     let notificationType = "appointment_status_change";
     let notificationTitle = "Appointment status updated";
-    
+
     if (status === "accepted") {
       notificationType = "appointment_confirmed";
       notificationTitle = "Appointment Confirmed! 🎉";
@@ -775,7 +784,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
       notificationTitle = "Appointment Completed";
     }
 
-    await createNotification({
+    const notificationPayload = {
       userId: notifyUserId,
       fromUserId,
       type: notificationType,
@@ -791,7 +800,11 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
         updatedBy: role,
       },
       sendPush: true, // Enable FCM push notification
-    });
+    };
+
+    await createNotification(notificationPayload);
+    // Emit socket event
+    io.to(notifyUserId.toString()).emit(notificationType, notificationPayload);
   }
 
   let sessionInfo = null;
@@ -849,13 +862,13 @@ export const deleteAppointment = catchAsync(async (req, res) => {
 
   for (const doc of appointment.medicalDocuments || []) {
     if (doc?.public_id) {
-      await deleteFromCloudinary(doc.public_id).catch(() => {});
+      await deleteFromCloudinary(doc.public_id).catch(() => { });
     }
   }
 
   if (appointment.paymentScreenshot?.public_id) {
     await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
-      () => {}
+      () => { }
     );
   }
 
@@ -970,9 +983,9 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
         weeklyByWeekday:
           view === "weekly"
             ? {
-                labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-                values: weeklyByWeekday,
-              }
+              labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+              values: weeklyByWeekday,
+            }
             : null,
       },
     });
