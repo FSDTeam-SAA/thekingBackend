@@ -11,6 +11,7 @@ import morgan from "morgan";
 
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFound from "./middleware/notFound.js";
+import { serverRunningTemplate } from "./template/serverRunning.template.js";
 
 const app = express();
 
@@ -49,9 +50,7 @@ app.use("/public", express.static("public"));
 
 app.use("/api/v1", router);
 
-app.get("/", (req, res) => {
-  res.send("Server is running...!!");
-});
+app.get("/", serverRunningTemplate);
 
 app.use(globalErrorHandler);
 app.use(notFound);
