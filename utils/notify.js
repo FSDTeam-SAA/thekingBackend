@@ -27,8 +27,12 @@ export const createNotification = async ({
     const validTypes = [
       "doctor_signup",
       "doctor_approved",
-      "appointment_created",
+      "appointment_booked",
       "appointment_status_change",
+      "post_liked",
+      "post_commented",
+      "reel_liked",
+      "reel_commented",
     ];
     if (!validTypes.includes(type)) {
       console.log(`Invalid notification type: ${type}`);

@@ -1,10 +1,16 @@
 import httpStatus from "http-status";
 import { Reel } from "../model/reel.model.js";
 import { ReelComment } from "../model/reelComment.model.js";
-import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/commonMethod.js";
+import {
+  uploadOnCloudinary,
+  deleteFromCloudinary,
+} from "../utils/commonMethod.js";
 import AppError from "../errors/AppError.js";
 import sendResponse from "../utils/sendResponse.js";
 import catchAsync from "../utils/catchAsync.js";
+import { io } from "../server.js";
+import { createBulkNotification, createNotification } from "../utils/notify.js";
+import mongoose from "mongoose";
 
 /**
  * Create a reel
@@ -68,7 +74,10 @@ export const createReel = catchAsync(async (req, res) => {
     thumbnail,
   });
 
-  const populated = await reel.populate("author", "fullName avatar role specialty");
+  const populated = await reel.populate(
+    "author",
+    "fullName avatar role specialty",
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -110,7 +119,7 @@ export const getReels = catchAsync(async (req, res) => {
         reel.likes?.includes(userId.toString()),
         ReelComment.countDocuments({ reel: reel._id }),
       ]);
-      
+
       return {
         ...reel,
         isLiked: !!isLiked,
@@ -118,7 +127,7 @@ export const getReels = catchAsync(async (req, res) => {
         commentsCount,
         sharesCount: reel.sharesCount || 0,
       };
-    })
+    }),
   );
 
   sendResponse(res, {
@@ -175,7 +184,7 @@ export const getAllReels = catchAsync(async (req, res) => {
       ]);
 
       const isLiked = (reel.likes || []).some(
-        (id) => id.toString() === userId.toString()
+        (id) => id.toString() === userId.toString(),
       );
 
       return {
@@ -185,7 +194,7 @@ export const getAllReels = catchAsync(async (req, res) => {
         commentsCount,
         sharesCount: reel.sharesCount || 0,
       };
-    })
+    }),
   );
 
   sendResponse(res, {
@@ -202,7 +211,6 @@ export const getAllReels = catchAsync(async (req, res) => {
     },
   });
 });
-
 
 /**
  * Get single reel by id
@@ -275,7 +283,32 @@ export const toggleLikeReel = catchAsync(async (req, res) => {
 
   await reel.save({ validateBeforeSave: false });
 
-  const populated = await reel.populate("author", "fullName avatar role specialty");
+  const populated = await reel.populate(
+    "author",
+    "fullName avatar role specialty",
+  );
+console.log(reel.author._id.toString(), userId.toString());
+
+  // 🔔 Send notification only if liker is not the author
+  if (!reel.author._id.equals(userId)) {
+    const notificationPayload = {
+      userId: reel.author._id,
+      fromUserId: userId,
+      type: "reel_liked",
+      title: "Your reel got a like!",
+      content: `${req.user.fullName} liked your reel`,
+      meta: {
+        reelId: reel._id,
+        reelCaption: reel.caption,
+      },
+    };
+    // save in DB with transaction
+    await createNotification({ ...notificationPayload });
+    // emit socket after DB commit (optional)
+    io.to(reel.author._id.toString()).emit("reel_like_notification", {
+      ...notificationPayload,
+    });
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -332,8 +365,9 @@ export const getReelComments = catchAsync(async (req, res) => {
 /**
  * Add comment to a reel
  */
+
 export const addReelComment = catchAsync(async (req, res) => {
-  const { id } = req.params;
+  const { id: reelId } = req.params;
   const { content } = req.body;
   const userId = req.user._id;
 
@@ -341,25 +375,81 @@ export const addReelComment = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Comment content is required");
   }
 
-  const reel = await Reel.findById(id);
-  if (!reel) {
-    throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const reel = await Reel.findById(reelId).session(session);
+    if (!reel) {
+      throw new AppError(httpStatus.NOT_FOUND, "Reel not found");
+    }
+
+    // 1️⃣ Create comment
+    const comment = await ReelComment.create(
+      [
+        {
+          reel: reelId,
+          author: userId,
+          content: content.trim(),
+        },
+      ],
+      { session },
+    );
+
+    if (!comment || comment.length === 0) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        "Failed to comment on reel",
+      );
+    }
+
+    const populatedComment = await comment[0].populate(
+      "author",
+      "fullName avatar role specialty",
+    );
+
+    // 2️⃣ Send notification if commenter is not reel author
+    if (!reel.author.equals(userId)) {
+      const notificationPayload = {
+        userId: reel.author,
+        fromUserId: userId,
+        type: "reel_commented",
+        title: "New comment on your reel",
+        content: `${populatedComment.author.fullName} commented on your reel`,
+        reel: reelId,
+        meta: {
+          reelId: reel._id,
+          reelCaption: reel.caption,
+        },
+      };
+
+      // save in DB with transaction
+      await createNotification({ ...notificationPayload, session });
+
+      // emit socket after DB commit (optional)
+      setTimeout(() => {
+        io.to(reel.author.toString()).emit(
+          "reel_comment_notification",
+          notificationPayload,
+        );
+      }, 0); // can adjust delay if needed
+    }
+
+    // 3️⃣ Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    sendResponse(res, {
+      statusCode: httpStatus.CREATED,
+      success: true,
+      message: "Comment added successfully",
+      data: populatedComment,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
-
-  const comment = await ReelComment.create({
-    reel: id,
-    author: userId,
-    content: content.trim(),
-  });
-
-  const populated = await comment.populate("author", "fullName avatar role specialty");
-
-  sendResponse(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: "Comment added successfully",
-    data: populated,
-  });
 });
 
 /**
@@ -376,7 +466,7 @@ export const shareReel = catchAsync(async (req, res) => {
   // Increment sharesCount
   if (!reel.sharesCount) reel.sharesCount = 0;
   reel.sharesCount += 1;
-  
+
   await reel.save({ validateBeforeSave: false });
 
   sendResponse(res, {
@@ -406,7 +496,7 @@ export const updateReel = catchAsync(async (req, res) => {
   if (!isOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only author or admin can update this reel"
+      "Only author or admin can update this reel",
     );
   }
 
@@ -466,7 +556,10 @@ export const updateReel = catchAsync(async (req, res) => {
 
   await reel.save();
 
-  const populated = await reel.populate("author", "fullName avatar role specialty");
+  const populated = await reel.populate(
+    "author",
+    "fullName avatar role specialty",
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -492,7 +585,7 @@ export const deleteReel = catchAsync(async (req, res) => {
   if (!isOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Only author or admin can delete this reel"
+      "Only author or admin can delete this reel",
     );
   }
 
