@@ -127,17 +127,22 @@ export const register = catchAsync(async (req, res) => {
       );
     }
 
-    // referral code validation (inside transaction)
-    const referral = await ReferralCode.findOne(
-      { code: refferalCode, isActive: true },
-      null,
-      {
-        session,
-      },
-    );
+    let referral = null;
 
-    if (!referral) {
-      throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
+    if (roleNormalized === "doctor" && refferalCode) {
+      // referral code validation (inside transaction)
+      const referralData = await ReferralCode.findOne(
+        { code: refferalCode, isActive: true },
+        null,
+        {
+          session,
+        },
+      );
+      if (!referralData) {
+        throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
+      }
+
+      referral = referralData;
     }
 
     // duplicate check (inside transaction)
@@ -180,11 +185,12 @@ export const register = catchAsync(async (req, res) => {
           password,
           experienceYears: expSafe,
           role: roleNormalized,
-          specialty,
+          specialty: roleNormalized === "doctor" ? specialty : undefined,
           medicalLicenseNumber:
             roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
           verificationInfo: { token: "" },
-          refferalCode,
+          refferalCode: refferalCode === "patient" ? undefined : refferalCode,
+          approvalStatus: roleNormalized === "doctor" ? "pending" : "approved",
         },
       ],
       { session },
@@ -204,9 +210,16 @@ export const register = catchAsync(async (req, res) => {
     // }
     //!end remove user
 
-    // update referral usage
-    referral.timesUsed += 1;
-    await referral.save({ session });
+    if (roleNormalized === "doctor") {
+      // update referral code usage (inside transaction)
+      const updatedReferral = await ReferralCode.findByIdAndUpdate(
+        referral._id,
+        {
+          $inc: { timesUsed: 1 },
+        },
+        { new: true, session },
+      );
+    }
 
     // commit transaction
     await session.commitTransaction();
