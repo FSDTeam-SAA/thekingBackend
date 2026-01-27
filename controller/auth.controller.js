@@ -105,13 +105,6 @@ export const register = catchAsync(async (req, res) => {
 
     const roleNormalized = normalizeRole(role);
 
-    if(!referralCode){
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "Referral code is required",
-      );
-    }
-
     if (roleNormalized === "doctor" && !medicalLicenseNumber) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
