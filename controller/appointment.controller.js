@@ -7,7 +7,7 @@ import sendResponse from "../utils/sendResponse.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/commonMethod.js";
 import { User } from "../model/user.model.js";
 import { Appointment } from "../model/appointment.model.js";
-import { Appointment } from "../model/appointment.model.js";
+
 import { createNotification } from "../utils/notify.js";
 import { io } from "../server.js";
 
