@@ -50,7 +50,7 @@ export const createNotification = async ({
       meta,
     });
 
-    console.log(`✅ Database notification created: ${type} for user ${userId}`);
+    console.log(`Notification created: ${type} for user ${userId}`);
 
     return {
       success: true,
