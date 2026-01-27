@@ -89,12 +89,6 @@ export const register = catchAsync(async (req, res) => {
     if (!email || !password || !fullName) {
       throw new AppError(httpStatus.BAD_REQUEST, "Please fill in all fields");
     }
-    if (!refferalCode) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "Please enter a referral code",
-      );
-    }
 
     if (password !== confirmPassword) {
       throw new AppError(
@@ -110,6 +104,26 @@ export const register = catchAsync(async (req, res) => {
         httpStatus.BAD_REQUEST,
         "Medical license number is required for doctors",
       );
+    }
+
+    if (roleNormalized === "doctor" && !refferalCode) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Referral code is required for doctors",
+      );
+    }
+
+    // referral code validation (inside transaction)
+    const referral = await ReferralCode.findOne(
+      { code: refferalCode, isActive: true },
+      null,
+      {
+        session,
+      },
+    );
+
+    if (!referral) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
     }
 
     // duplicate check (inside transaction)
@@ -137,19 +151,6 @@ export const register = catchAsync(async (req, res) => {
         message = "Medical license number already exists";
 
       throw new AppError(httpStatus.BAD_REQUEST, message);
-    }
-
-    // referral code validation (inside transaction)
-    const referral = await ReferralCode.findOne(
-      { code: refferalCode, isActive: true },
-      null,
-      {
-        session,
-      },
-    );
-
-    if (!referral) {
-      throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
     }
 
     const exp = Number(experienceYears);
