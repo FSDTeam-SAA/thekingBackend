@@ -99,6 +99,13 @@ export const register = catchAsync(async (req, res) => {
 
     const roleNormalized = normalizeRole(role);
 
+    if (roleNormalized === "admin") {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Admin registration is not allowed",
+      );
+    }
+
     if (roleNormalized === "doctor" && !medicalLicenseNumber) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
