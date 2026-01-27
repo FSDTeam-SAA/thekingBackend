@@ -89,6 +89,12 @@ export const register = catchAsync(async (req, res) => {
     if (!email || !password || !fullName) {
       throw new AppError(httpStatus.BAD_REQUEST, "Please fill in all fields");
     }
+    if (!refferalCode) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Please enter a referral code",
+      );
+    }
 
     if (password !== confirmPassword) {
       throw new AppError(

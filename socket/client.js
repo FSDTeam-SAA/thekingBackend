@@ -1,7 +1,7 @@
 import { io as socketIoClient, Socket } from "socket.io-client";
 
 const SERVER_URL = "http://localhost:5000";
-const USER_ID = "696aa3ec01b55a7fe73087e5"; // Example user ID
+const USER_ID = "6947249c686615dc352744b2"; // Example user ID
 
 const socket = socketIoClient(SERVER_URL, {
   query: { userId: USER_ID },
@@ -30,6 +30,16 @@ socket.on("like_post_notification", (notification) => {
 
 socket.on("post_comment_notification", (notification) => {
   console.log("🔔 New Comment Post Notification Received:");
+  console.log("   Content:", notification.content);
+});
+
+socket.on("reel_comment_notification", (notification) => {
+  console.log("🔔 New Reel Comment Notification Received:");
+  console.log("   Content:", notification.content);
+});
+
+socket.on("reel_like_notification", (notification) => {
+  console.log("🔔 New Reel Like Notification Received:");
   console.log("   Content:", notification.content);
 });
 
