@@ -4,7 +4,10 @@ import mongoose from "mongoose";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import sendResponse from "../utils/sendResponse.js";
-import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/commonMethod.js";
+import {
+  deleteFromCloudinary,
+  uploadOnCloudinary,
+} from "../utils/commonMethod.js";
 import { User } from "../model/user.model.js";
 import { Appointment } from "../model/appointment.model.js";
 
@@ -14,7 +17,9 @@ import { io } from "../server.js";
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:MM
 
 const normalizeAppointmentType = (t) => {
-  const v = String(t || "").toLowerCase().trim();
+  const v = String(t || "")
+    .toLowerCase()
+    .trim();
   if (["physical", "physical_visit", "clinic"].includes(v)) return "physical";
   if (["video", "video_call", "online"].includes(v)) return "video";
   return null;
@@ -43,7 +48,10 @@ export const confirmAppointment = catchAsync(async (req, res) => {
   const { status } = req.body;
 
   if (!appointmentId || !status) {
-    throw new AppError(httpStatus.BAD_REQUEST, "Appointment ID and status are required");
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Appointment ID and status are required",
+    );
   }
 
   // Find the appointment
@@ -56,11 +64,14 @@ export const confirmAppointment = catchAsync(async (req, res) => {
   const updatedAppointment = await Appointment.findByIdAndUpdate(
     appointmentId,
     { status },
-    { new: true }
+    { new: true },
   );
 
   if (!updatedAppointment) {
-    throw new AppError(httpStatus.INTERNAL_ERROR, "Failed to update appointment status");
+    throw new AppError(
+      httpStatus.INTERNAL_ERROR,
+      "Failed to update appointment status",
+    );
   }
 
   // Get patient and doctor info for notification
@@ -68,13 +79,13 @@ export const confirmAppointment = catchAsync(async (req, res) => {
   const doctor = await User.findById(appointment.doctor);
 
   // Send notification to patient
-  if (patient && status === 'accepted') {
+  if (patient && status === "accepted") {
     const notificationPayload = {
       userId: patient._id,
       fromUserId: doctor._id,
-      type: 'appointment_confirmed',
-      title: 'Appointment Confirmed! 🎉',
-      content: `Your appointment with Dr. ${doctor?.fullName || 'Doctor'} has been confirmed for ${appointment.appointmentDate} at ${appointment.time}.`,
+      type: "appointment_confirmed",
+      title: "Appointment Confirmed! 🎉",
+      content: `Your appointment with Dr. ${doctor?.fullName || "Doctor"} has been confirmed for ${appointment.appointmentDate} at ${appointment.time}.`,
       appointmentId: appointment._id,
       meta: {
         appointmentType: appointment.appointmentType,
@@ -86,14 +97,17 @@ export const confirmAppointment = catchAsync(async (req, res) => {
     };
     await createNotification(notificationPayload);
     // Emit socket event
-    io.to(patient._id.toString()).emit("appointment_confirmed", notificationPayload);
+    io.to(patient._id.toString()).emit(
+      "appointment_confirmed",
+      notificationPayload,
+    );
   }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Appointment status updated successfully',
-    data: updatedAppointment
+    message: "Appointment status updated successfully",
+    data: updatedAppointment,
   });
 });
 
@@ -101,8 +115,8 @@ export const createAppointment = catchAsync(async (req, res) => {
   const {
     doctorId,
     appointmentType, // "physical" | "videooo"
-    date,            // "2025-12-04"
-    time,            // "10:30"
+    date, // "2025-12-04"
+    time, // "10:30"
     symptoms,
     bookedFor,
   } = req.body;
@@ -121,7 +135,9 @@ export const createAppointment = catchAsync(async (req, res) => {
   }
 
   const bookedForInput = parseJSONMaybe(bookedFor) || {};
-  const typeRaw = String(bookedForInput?.type || "").trim().toLowerCase();
+  const typeRaw = String(bookedForInput?.type || "")
+    .trim()
+    .toLowerCase();
 
   let bookingScope = "self";
 
@@ -134,7 +150,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   } else {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "bookedFor.type must be 'self' or 'dependent'"
+      "bookedFor.type must be 'self' or 'dependent'",
     );
   }
 
@@ -146,33 +162,31 @@ export const createAppointment = catchAsync(async (req, res) => {
 
   if (bookingScope === "dependent") {
     const dependentId =
-      bookedForInput?.dependentId ||
-      bookedForInput?._id ||
-      bookedForInput?.id;
+      bookedForInput?.dependentId || bookedForInput?._id || bookedForInput?.id;
 
     if (!dependentId || !mongoose.Types.ObjectId.isValid(dependentId)) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "A valid dependentId is required when booking for a dependent"
+        "A valid dependentId is required when booking for a dependent",
       );
     }
 
     const dependent =
       (patient.dependents || []).find(
-        (dep) => String(dep._id) === String(dependentId)
+        (dep) => String(dep._id) === String(dependentId),
       ) || null;
 
     if (!dependent) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Dependent not found for the current user"
+        "Dependent not found for the current user",
       );
     }
 
     if (dependent.isActive === false) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Dependent is inactive and cannot be used for booking"
+        "Dependent is inactive and cannot be used for booking",
       );
     }
 
@@ -188,7 +202,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   if (!type) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "appointmentType must be physical or video"
+      "appointmentType must be physical or video",
     );
   }
 
@@ -202,7 +216,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   if (!timeRegex.test(time || "")) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "time must be HH:MM in 24-hour format (e.g. 10:30)"
+      "time must be HH:MM in 24-hour format (e.g. 10:30)",
     );
   }
 
@@ -231,7 +245,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   if (type === "video" && !paymentScreenshot) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Payment screenshot is required for video appointments"
+      "Payment screenshot is required for video appointments",
     );
   }
 
@@ -246,7 +260,7 @@ export const createAppointment = catchAsync(async (req, res) => {
   if (conflict) {
     throw new AppError(
       httpStatus.CONFLICT,
-      "This time slot is already booked for this doctor"
+      "This time slot is already booked for this doctor",
     );
   }
 
@@ -298,7 +312,7 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
   if (!doctorId || !date) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "doctorId and date are required"
+      "doctorId and date are required",
     );
   }
 
@@ -325,7 +339,7 @@ export const getAvailableAppointments = catchAsync(async (req, res) => {
 
   const weeklySchedule = doctor.weeklySchedule || [];
   const daySchedule = weeklySchedule.find(
-    (d) => d.day === dayName && d.isActive
+    (d) => d.day === dayName && d.isActive,
   );
 
   if (!daySchedule || !daySchedule.slots?.length) {
@@ -381,8 +395,22 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   const role = req.user.role;
 
   const filter = {};
-  const { status, doctorId, patientId } = req.query;
+  const { status, doctorId, patientId, page, limit, sortBy } = req.query;
 
+  // 🔹 Sort logic
+  let sort = {};
+  if (sortBy === "oldestToNewest") {
+    sort = { createdAt: 1 }; // oldest first
+  } else {
+    sort = { createdAt: -1 }; // newest first (default)
+  }
+
+  // 🔹 Pagination
+  const currentPage = Math.max(Number(page) || 1, 1);
+  const pageLimit = Math.min(Number(limit) || 10, 100);
+  const skip = (currentPage - 1) * pageLimit;
+
+  // 🔹 Role-based filtering
   if (role === "patient") {
     filter.patient = userId;
   } else if (role === "doctor") {
@@ -394,35 +422,38 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.FORBIDDEN, "Invalid role");
   }
 
+  // 🔹 Status filter
   if (status) {
     filter.status = status;
   }
 
-  let appointments = await Appointment.find(filter)
-    .sort({ appointmentDate: 1, time: 1 })
-    .populate("doctor", "fullName role specialty avatar fees")
-    .populate("patient", "fullName role avatar dependents")
-    .lean();
+  // 🔹 Fetch appointments + total count
+  const [appointments, total] = await Promise.all([
+    Appointment.find(filter)
+      .sort({ ...sort, appointmentDate: 1, time: 1 }) // combine sortBy + date/time
+      .skip(skip)
+      .limit(pageLimit)
+      .populate("doctor", "fullName role specialty avatar fees")
+      .populate("patient", "fullName role avatar dependents")
+      .lean(),
+    Appointment.countDocuments(filter),
+  ]);
 
-  // ✅ IMPROVED: Enrich appointments with dependent info
-  appointments = appointments.map((appt) => {
-    // If already has relationship from DB, no need to enrich
-    if (appt.bookedFor?.relationship) {
-      return appt;
-    }
+  // 🔹 Enrich appointments with dependent info
+  const enrichedAppointments = appointments.map((appt) => {
+    if (appt.bookedFor?.relationship) return appt;
 
-    // Otherwise, try to get it from patient's dependents
     if (appt.bookedFor?.type === "dependent" && appt.bookedFor?.dependentId) {
       const patient = appt.patient;
 
       if (patient?.dependents && Array.isArray(patient.dependents)) {
         const dependent = patient.dependents.find(
-          (dep) => String(dep._id) === String(appt.bookedFor.dependentId)
+          (dep) => String(dep._id) === String(appt.bookedFor.dependentId),
         );
 
         if (dependent) {
           appt.bookedFor.dependentName = dependent.fullName;
-          appt.bookedFor.relationship = dependent.relationship; // ✅
+          appt.bookedFor.relationship = dependent.relationship;
         }
       }
     }
@@ -430,13 +461,32 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     return appt;
   });
 
+  // 🔹 Pagination meta
+  const totalPages = Math.ceil(total / pageLimit);
+  const from = total === 0 ? 0 : skip + 1;
+  const to = Math.min(skip + appointments.length, total);
+  const hasNext = currentPage < totalPages;
+  const hasPrev = currentPage > 1;
+
+  // 🔹 Send response
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Appointments fetched successfully",
-    data: appointments,
+    data: enrichedAppointments,
+    pagination: {
+      page: currentPage,
+      limit: pageLimit,
+      total,
+      totalPages,
+      from,
+      to,
+      hasNext,
+      hasPrev,
+    },
   });
 });
+
 
 export const updateAppointment = catchAsync(async (req, res) => {
   const { id } = req.params;
@@ -459,14 +509,14 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (!isPatientOwner && !isDoctorOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "You are not allowed to update this appointment"
+      "You are not allowed to update this appointment",
     );
   }
 
   if (["completed", "cancelled"].includes(appointment.status)) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Completed or cancelled appointments cannot be updated"
+      "Completed or cancelled appointments cannot be updated",
     );
   }
 
@@ -477,7 +527,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
     if (!type) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "appointmentType must be physical or video"
+        "appointmentType must be physical or video",
       );
     }
     updates.appointmentType = type;
@@ -495,7 +545,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
     if (!timeRegex.test(time || "")) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "time must be HH:MM in 24-hour format (e.g. 10:30)"
+        "time must be HH:MM in 24-hour format (e.g. 10:30)",
       );
     }
     updates.time = time;
@@ -509,7 +559,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
     if (!isPatientOwner) {
       throw new AppError(
         httpStatus.FORBIDDEN,
-        "Only the patient can update bookedFor details"
+        "Only the patient can update bookedFor details",
       );
     }
     updates.bookedFor = buildBookedForPayload(bookedFor, req.user);
@@ -521,7 +571,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (medicalDocsFiles.length > 0) {
     for (const doc of appointment.medicalDocuments || []) {
       if (doc?.public_id) {
-        await deleteFromCloudinary(doc.public_id).catch(() => { });
+        await deleteFromCloudinary(doc.public_id).catch(() => {});
       }
     }
 
@@ -539,7 +589,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (paymentFiles[0]) {
     if (appointment.paymentScreenshot?.public_id) {
       await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
-        () => { }
+        () => {},
       );
     }
 
@@ -561,14 +611,14 @@ export const updateAppointment = catchAsync(async (req, res) => {
   ) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Payment screenshot is required for video appointments"
+      "Payment screenshot is required for video appointments",
     );
   }
 
   const scheduleChanged =
     (updates.appointmentDate &&
       new Date(updates.appointmentDate).getTime() !==
-      new Date(appointment.appointmentDate).getTime()) ||
+        new Date(appointment.appointmentDate).getTime()) ||
     (updates.time && updates.time !== appointment.time);
 
   if (scheduleChanged) {
@@ -583,7 +633,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
     if (conflict) {
       throw new AppError(
         httpStatus.CONFLICT,
-        "This time slot is already booked for this doctor"
+        "This time slot is already booked for this doctor",
       );
     }
   }
@@ -608,8 +658,6 @@ export const updateAppointment = catchAsync(async (req, res) => {
   });
 });
 
-
-
 //  FIXED: updateAppointmentStatus - Now allows patient to cancel
 export const updateAppointmentStatus = catchAsync(async (req, res) => {
   const { id } = req.params;
@@ -622,7 +670,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   if (!status || !allowedStatuses.includes(status)) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Status must be one of: pending, accepted, completed, cancelled"
+      "Status must be one of: pending, accepted, completed, cancelled",
     );
   }
 
@@ -635,12 +683,10 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   }
 
   const isDoctorOwner =
-    role === "doctor" &&
-    String(appointment.doctor?._id) === String(userId);
+    role === "doctor" && String(appointment.doctor?._id) === String(userId);
 
   const isPatientOwner =
-    role === "patient" &&
-    String(appointment.patient?._id) === String(userId);
+    role === "patient" && String(appointment.patient?._id) === String(userId);
 
   const isAdmin = role === "admin";
 
@@ -650,7 +696,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   if (!canUpdate) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "You don't have permission to update this appointment"
+      "You don't have permission to update this appointment",
     );
   }
 
@@ -658,7 +704,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   if (role === "patient" && status !== "cancelled") {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "Patients can only cancel appointments. Other status changes require doctor approval."
+      "Patients can only cancel appointments. Other status changes require doctor approval.",
     );
   }
 
@@ -667,7 +713,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     if (String(appointment.patient?._id) !== String(userId)) {
       throw new AppError(
         httpStatus.FORBIDDEN,
-        "You can only cancel your own appointments"
+        "You can only cancel your own appointments",
       );
     }
   }
@@ -683,7 +729,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
   if (!transitions[current].includes(status) && current !== status) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `Invalid status transition from ${current} to ${status}`
+      `Invalid status transition from ${current} to ${status}`,
     );
   }
 
@@ -692,14 +738,14 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     if (role === "patient") {
       throw new AppError(
         httpStatus.FORBIDDEN,
-        "Only doctors can mark appointments as completed"
+        "Only doctors can mark appointments as completed",
       );
     }
 
     if (!patient || !String(patient).trim()) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "patient (fullName) is required when completing appointment"
+        "patient (fullName) is required when completing appointment",
       );
     }
 
@@ -707,14 +753,14 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     if (String(patient).trim() !== dbPatientName) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Patient name does not match appointment patient"
+        "Patient name does not match appointment patient",
       );
     }
 
     if (price === undefined || price === null || String(price).trim() === "") {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "price is required when completing appointment"
+        "price is required when completing appointment",
       );
     }
 
@@ -722,7 +768,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     if (!Number.isFinite(paidAmount) || paidAmount < 0) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "price must be a valid positive number"
+        "price must be a valid positive number",
       );
     }
 
@@ -730,7 +776,7 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
     if (paidAmount < doctorFee) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Paid amount is less than the doctor's fees"
+        "Paid amount is less than the doctor's fees",
       );
     }
 
@@ -849,26 +895,26 @@ export const deleteAppointment = catchAsync(async (req, res) => {
   if (!isPatientOwner && !isDoctorOwner && !isAdmin) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      "You are not allowed to delete this appointment"
+      "You are not allowed to delete this appointment",
     );
   }
 
   if (appointment.status === "completed" && !isAdmin) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Completed appointments cannot be deleted"
+      "Completed appointments cannot be deleted",
     );
   }
 
   for (const doc of appointment.medicalDocuments || []) {
     if (doc?.public_id) {
-      await deleteFromCloudinary(doc.public_id).catch(() => { });
+      await deleteFromCloudinary(doc.public_id).catch(() => {});
     }
   }
 
   if (appointment.paymentScreenshot?.public_id) {
     await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
-      () => { }
+      () => {},
     );
   }
 
@@ -881,7 +927,6 @@ export const deleteAppointment = catchAsync(async (req, res) => {
     data: null,
   });
 });
-
 
 const getDateRangeForView = (view) => {
   const now = new Date();
@@ -914,7 +959,7 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
   if (!["daily", "weekly", "monthly"].includes(view)) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "view must be one of: daily, weekly, monthly"
+      "view must be one of: daily, weekly, monthly",
     );
   }
 
@@ -983,9 +1028,9 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
         weeklyByWeekday:
           view === "weekly"
             ? {
-              labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-              values: weeklyByWeekday,
-            }
+                labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                values: weeklyByWeekday,
+              }
             : null,
       },
     });
@@ -1047,6 +1092,6 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
 
   throw new AppError(
     httpStatus.FORBIDDEN,
-    "Only doctor or admin can view earnings overview"
+    "Only doctor or admin can view earnings overview",
   );
 });
