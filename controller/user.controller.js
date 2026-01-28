@@ -664,6 +664,9 @@ export const updateProfile = catchAsync(async (req, res) => {
     weeklySchedule,
     visitingHoursText,
     medicalLicenseNumber,
+    isVideoCallAvailable, // ✅ NEW: Support for main key
+    isVideoAvailable,     // ✅ NEW: Support for redundant key 1
+    isAvailable,          // ✅ NEW: Support for redundant key 2
   } = req.body;
 
   console.log("📝 ========== Update Profile Request ==========");
@@ -815,6 +818,19 @@ export const updateProfile = catchAsync(async (req, res) => {
 
     if (medicalLicenseNumber !== undefined) {
       user.medicalLicenseNumber = String(medicalLicenseNumber).trim();
+    }
+
+    // ✅ NEW: Handle Video Call Availability persistence
+    // We check all potential keys for maximum compatibility with Flutter frontend
+    const availabilityInput = isVideoCallAvailable !== undefined ? isVideoCallAvailable :
+      (isVideoAvailable !== undefined ? isVideoAvailable : isAvailable);
+
+    if (availabilityInput !== undefined) {
+      const boolVal = parseBooleanInput(availabilityInput);
+      if (boolVal !== undefined) {
+        user.isVideoCallAvailable = boolVal;
+        console.log("✅ isVideoCallAvailable updated to:", user.isVideoCallAvailable);
+      }
     }
   }
 
