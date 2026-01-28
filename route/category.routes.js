@@ -7,7 +7,7 @@ import {
   getAllCategoriesAdmin,
   getAllCategoriesPublic,
 } from "../controller/category.controller.js";
-import upload from "../middleware/multer.middleware.js";
+import upload, { multerErrorHandler } from "../middleware/multer.middleware.js";
 import { protect, isAdmin } from "../middleware/auth.middleware.js";
 
 const router = Router();
@@ -23,7 +23,7 @@ router.post(
   "/",
   protect,
   isAdmin,
-  upload.single("category_image"),
+  upload.single("category_image"),multerErrorHandler,
   createCategory
 );
 

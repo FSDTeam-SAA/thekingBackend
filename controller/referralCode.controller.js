@@ -69,7 +69,8 @@ export const getReferralCode = catchAsync(async (req, res) => {
 
 export const updateReferralCode = catchAsync(async (req, res) => {
   const { id } = req.params;
-  const { code, description } = req.body;
+  const { code, description, isActive } = req.body;
+  console.log();
 
   const referralCode = await ReferralCode.findById(id);
   if (!referralCode) {
@@ -80,19 +81,29 @@ export const updateReferralCode = catchAsync(async (req, res) => {
     if (referralCode.timesUsed > 0) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Referral code cannot be changed after doctors have registered with it"
+        "Referral code cannot be changed after doctors have registered with it",
       );
     }
     const normalizedCode = normalizeCode(code);
-    const conflict = await ReferralCode.findOne({ code: normalizedCode, _id: { $ne: id } });
+    const conflict = await ReferralCode.findOne({
+      code: normalizedCode,
+      _id: { $ne: id },
+    });
     if (conflict) {
-      throw new AppError(httpStatus.BAD_REQUEST, "Referral code already exists");
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        "Referral code already exists",
+      );
     }
     referralCode.code = normalizedCode;
   }
 
   if (typeof description !== "undefined") {
     referralCode.description = description;
+  }
+
+  if (typeof isActive !== "undefined") {
+    referralCode.isActive = isActive;
   }
 
   await referralCode.save();
@@ -111,10 +122,10 @@ export const deleteReferralCode = catchAsync(async (req, res) => {
   if (!referralCode) {
     throw new AppError(httpStatus.NOT_FOUND, "Referral code not found");
   }
-if(referralCode.timesUsed > 0){
+  if (referralCode.timesUsed > 0) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "Referral code cannot be deleted after doctors have registered with it"
+      "Referral code cannot be deleted after doctors have registered with it",
     );
   }
   await ReferralCode.deleteOne({ _id: id });
