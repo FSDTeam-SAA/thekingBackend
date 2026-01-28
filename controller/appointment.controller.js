@@ -394,15 +394,15 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   const userId = req.user._id;
   const role = req.user.role;
 
-  const filter = {};
-  const { status, doctorId, patientId, page, limit, sortBy } = req.query;
+  const { status, doctorId, patientId, page, limit, sortBy, search } =
+    req.query;
 
   // 🔹 Sort logic
   let sort = {};
   if (sortBy === "oldestToNewest") {
-    sort = { createdAt: 1 }; // oldest first
+    sort = { createdAt: 1 };
   } else {
-    sort = { createdAt: -1 }; // newest first (default)
+    sort = { createdAt: -1 };
   }
 
   // 🔹 Pagination
@@ -410,37 +410,85 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   const pageLimit = Math.min(Number(limit) || 10, 100);
   const skip = (currentPage - 1) * pageLimit;
 
-  // 🔹 Role-based filtering
-  if (role === "patient") {
-    filter.patient = userId;
-  } else if (role === "doctor") {
-    filter.doctor = userId;
-  } else if (role === "admin") {
-    if (doctorId) filter.doctor = doctorId;
-    if (patientId) filter.patient = patientId;
-  } else {
-    throw new AppError(httpStatus.FORBIDDEN, "Invalid role");
-  }
+  // 🔹 Role-based filter
+  const matchFilter = {};
+  if (role === "patient") matchFilter.patient = userId;
+  else if (role === "doctor") matchFilter.doctor = userId;
+  else if (role === "admin") {
+    if (doctorId) matchFilter.doctor = doctorId;
+    if (patientId) matchFilter.patient = patientId;
+  } else throw new AppError(httpStatus.FORBIDDEN, "Invalid role");
 
   // 🔹 Status filter
-  if (status && status !== "all") {
-    filter.status = status;
+  if (status && status !== "all") matchFilter.status = status;
+
+  // 🔹 Build aggregation pipeline
+  const pipeline = [
+    { $match: matchFilter },
+    // Populate doctor
+    {
+      $lookup: {
+        from: "users",
+        localField: "doctor",
+        foreignField: "_id",
+        as: "doctor",
+      },
+    },
+    { $unwind: "$doctor" },
+    // Populate patient
+    {
+      $lookup: {
+        from: "users",
+        localField: "patient",
+        foreignField: "_id",
+        as: "patient",
+      },
+    },
+    { $unwind: "$patient" },
+  ];
+
+  // 🔹 Search filter
+  if (search) {
+    const regex = new RegExp(search, "i");
+    pipeline.push({
+      $match: {
+        $or: [
+          { "doctor.fullName": regex },
+          { "patient.fullName": regex },
+          { "bookedFor.dependentName": regex }, // if already enriched
+        ],
+      },
+    });
   }
 
-  // 🔹 Fetch appointments + total count
-  const [appointments, total] = await Promise.all([
-    Appointment.find(filter)
-      .sort({ ...sort, appointmentDate: 1, time: 1 }) // combine sortBy + date/time
-      .skip(skip)
-      .limit(pageLimit)
-      .populate("doctor", "fullName role specialty avatar fees")
-      .populate("patient", "fullName role avatar dependents")
-      .lean(),
-    Appointment.countDocuments(filter),
-  ]);
+  // 🔹 Count total after search
+  const countPipeline = [...pipeline, { $count: "total" }];
+  const countResult = await Appointment.aggregate(countPipeline);
+  const total = countResult[0]?.total || 0;
 
-  // 🔹 Enrich appointments with dependent info
-  const enrichedAppointments = appointments.map((appt) => {
+  // 🔹 Sort + pagination
+  pipeline.push({ $sort: { ...sort, appointmentDate: 1, time: 1 } });
+  pipeline.push({ $skip: skip });
+  pipeline.push({ $limit: pageLimit });
+
+  // 🔹 Project fields
+  pipeline.push({
+    $project: {
+      doctor: { fullName: 1, role: 1, specialty: 1, avatar: 1, fees: 1 },
+      patient: { fullName: 1, role: 1, avatar: 1, dependents: 1 },
+      appointmentDate: 1,
+      time: 1,
+      status: 1,
+      bookedFor: 1,
+      createdAt: 1,
+    },
+  });
+
+  // 🔹 Fetch paginated appointments
+  let appointments = await Appointment.aggregate(pipeline);
+
+  // 🔹 Enrich dependents info if not already
+  appointments = appointments.map((appt) => {
     if (appt.bookedFor?.relationship) return appt;
 
     if (appt.bookedFor?.type === "dependent" && appt.bookedFor?.dependentId) {
@@ -473,7 +521,7 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Appointments fetched successfully",
-    data: enrichedAppointments,
+    data: appointments,
     pagination: {
       page: currentPage,
       limit: pageLimit,
@@ -486,6 +534,8 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     },
   });
 });
+
+
 
 export const updateAppointment = catchAsync(async (req, res) => {
   const { id } = req.params;
