@@ -5,30 +5,28 @@ import { User } from "./../model/user.model.js";
 
 export const protect = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-  
   if (!token) {
     throw new AppError(httpStatus.UNAUTHORIZED, "Token not found");
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-    console.log("Decoded token:", decoded);
-    
-    // ✅ CRITICAL FIX: Find user and handle if not found
+    if (!decoded) {
+      throw new AppError(httpStatus.UNAUTHORIZED, "Invalid or expired token");
+    }
+
+    // Check if user still exists
     const user = await User.findById(decoded._id).select("-password");
-    
     if (!user) {
       throw new AppError(httpStatus.UNAUTHORIZED, "User not found or deleted");
     }
-    
-    // ✅ Set req.user BEFORE calling next()
+
+    // Attach user to request
     req.user = user;
-    console.log("✅ User authenticated:", user._id, user.email, user.role);
-    
-    next(); // ✅ Only call after setting req.user
+
+    next(); 
   } catch (err) {
-    console.error("❌ Auth error:", err);
-    throw new AppError(httpStatus.UNAUTHORIZED, "Invalid or expired token");
+    next(err);
   }
 };
 
