@@ -25,7 +25,6 @@ export const initiateCall = catchAsync(async (req, res) => {
   let chat = await Chat.findById(chatId);
 
   if (!chat) {
-    console.log(`🔍 Chat ID ${chatId} not found, searching by participants: ${callerId} & ${receiverId}`);
     // Try to find a 1v1 chat between these participants
     chat = await Chat.findOne({
       participants: { $all: [callerId, receiverId] },
@@ -33,7 +32,6 @@ export const initiateCall = catchAsync(async (req, res) => {
     });
 
     if (!chat) {
-      console.log("🆕 No existing chat found, creating a new one for signaling persistence");
       chat = await Chat.create({
         participants: [callerId, receiverId],
         isGroupChat: false,

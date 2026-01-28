@@ -60,7 +60,6 @@ export const createOrGetChat = catchAsync(async (req, res) => {
     });
 
   if (!chat) {
-    console.log('📝 Creating new chat between:', meId, 'and', userId);
 
     chat = await Chat.create({
       participants: [meId, userId],
@@ -74,10 +73,6 @@ export const createOrGetChat = catchAsync(async (req, res) => {
         path: "lastMessage",
         populate: { path: "sender", select: "fullName avatar role" },
       });
-
-    console.log('✅ New chat created:', chat._id);
-  } else {
-    console.log('✅ Existing chat found:', chat._id);
   }
 
   sendResponse(res, {
@@ -135,8 +130,6 @@ export const getMyChats = catchAsync(async (req, res) => {
       });
     }
   }
-
-  console.log(`✅ Fetched ${uniqueChats.length} unique chats for user ${meId}`);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -240,7 +233,7 @@ export const sendMessage = catchAsync(async (req, res) => {
         content: file.mimetype,
       });
     } catch (error) {
-      console.error('❌ Error uploading file:', error);
+      new AppError(httpStatus.INTERNAL_SERVER_ERROR, "File upload failed");
     }
   }
 
@@ -276,8 +269,6 @@ export const sendMessage = catchAsync(async (req, res) => {
   const populatedMsg = await Message.findById(message._id)
     .populate("sender", "fullName avatar role")
     .lean();
-
-  console.log('✅ Message sent:', populatedMsg._id);
 
   // Socket notification to all participants
   for (const p of chat.participants) {

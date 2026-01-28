@@ -26,7 +26,6 @@ export const generateAgoraChatToken = (userId) => {
         );
         return token;
     } catch (error) {
-        console.error("❌ Error generating Agora Chat Token:", error);
         throw error;
     }
 };

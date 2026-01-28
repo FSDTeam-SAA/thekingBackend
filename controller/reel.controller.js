@@ -287,7 +287,6 @@ export const toggleLikeReel = catchAsync(async (req, res) => {
     "author",
     "fullName avatar role specialty",
   );
-console.log(reel.author._id.toString(), userId.toString());
 
   // 🔔 Send notification only if liker is not the author
   if (!reel.author._id.equals(userId)) {

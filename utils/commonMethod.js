@@ -46,7 +46,6 @@ export const uploadOnCloudinary = (fileBuffer, options = {}) => {
       { ...options },
       (error, result) => {
         if (error) {
-          console.error("Cloudinary upload error:", error);
           return reject(error);
         }
         resolve(result);
@@ -60,7 +59,6 @@ export const deleteFromCloudinary = (publicId) => {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.destroy(publicId, (error, result) => {
       if (error) {
-        console.error("Cloudinary delete error:", error);
         return reject(error);
       }
       resolve(result);

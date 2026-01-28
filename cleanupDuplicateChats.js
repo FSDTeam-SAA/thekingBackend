@@ -26,25 +26,18 @@ async function cleanupDuplicateChats() {
                      process.env.DB_URL;
     
     if (!mongoUri) {
-      console.error('❌ MongoDB URI not found in environment variables!');
-      console.log('Please check your .env file has one of these:');
-      console.log('  - MONGO_DB_URL');
-      console.log('  - MONGODB_URI');
-      console.log('  - DATABASE_URL');
+      console.error('MongoDB URI not found in environment variables!');
       return;
     }
     
     await mongoose.connect(mongoUri);
-    console.log('✅ MongoDB connected\n');
-    
-    console.log('🔍 Finding duplicate chats...');
+
 
     // Get all non-group chats
     const allChats = await Chat.find({ 
       isGroupChat: false 
     }).lean();
 
-    console.log(`📊 Found ${allChats.length} total 1-1 chats`);
 
     // Group chats by participant pair
     const chatGroups = new Map();
@@ -63,7 +56,6 @@ async function cleanupDuplicateChats() {
       chatGroups.get(participantIds).push(chat);
     }
 
-    console.log(`👥 Found ${chatGroups.size} unique participant pairs`);
 
     let duplicatesRemoved = 0;
     let messagesTransferred = 0;
@@ -71,17 +63,12 @@ async function cleanupDuplicateChats() {
     // Process each group
     for (const [participantIds, chats] of chatGroups.entries()) {
       if (chats.length > 1) {
-        console.log(`\n🔄 Processing duplicate group: ${participantIds}`);
-        console.log(`   Found ${chats.length} duplicate chats`);
 
         // Sort by creation date (keep the oldest one)
         chats.sort((a, b) => a.createdAt - b.createdAt);
 
         const keepChat = chats[0];
         const duplicates = chats.slice(1);
-
-        console.log(`   ✅ Keeping chat: ${keepChat._id}`);
-        console.log(`   ❌ Removing ${duplicates.length} duplicates`);
 
         // Transfer messages from duplicates to the main chat
         for (const dupChat of duplicates) {
@@ -91,8 +78,6 @@ async function cleanupDuplicateChats() {
           });
 
           if (messageCount > 0) {
-            console.log(`   📨 Transferring ${messageCount} messages from ${dupChat._id}`);
-            
             // Update all messages to point to the kept chat
             await Message.updateMany(
               { chatId: dupChat._id },
@@ -124,27 +109,22 @@ async function cleanupDuplicateChats() {
       }
     }
 
-    console.log('\n✅ Cleanup complete!');
-    console.log(`   🗑️  Removed ${duplicatesRemoved} duplicate chats`);
-    console.log(`   📨 Transferred ${messagesTransferred} messages`);
-    console.log(`   ✅ ${chatGroups.size} unique chats remain`);
+
 
   } catch (error) {
-    console.error('❌ Error during cleanup:', error);
+    console.error(' Error during cleanup:', error);
   } finally {
     // Close MongoDB connection
     await mongoose.connection.close();
-    console.log('\n🔌 MongoDB connection closed');
+    console.log('MongoDB connection closed.');
   }
 }
 
 // Run the cleanup
 cleanupDuplicateChats()
   .then(() => {
-    console.log('\n✅ Script completed');
     process.exit(0);
   })
   .catch((error) => {
-    console.error('❌ Script failed:', error);
     process.exit(1);
   });

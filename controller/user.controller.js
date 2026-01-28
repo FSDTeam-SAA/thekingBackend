@@ -669,13 +669,6 @@ export const updateProfile = catchAsync(async (req, res) => {
     isAvailable,          // ✅ NEW: Support for redundant key 2
   } = req.body;
 
-  console.log("📝 ========== Update Profile Request ==========");
-  console.log("   - fullName:", fullName);
-  console.log("   - phone:", phone);
-  console.log("   - address:", address);
-  console.log("   - profileImage:", profileImage ? "Yes (base64)" : "No");
-  console.log("================================================");
-
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
@@ -687,7 +680,6 @@ export const updateProfile = catchAsync(async (req, res) => {
   if (dob !== undefined) user.dob = dob;
   if (address !== undefined) {
     user.address = String(address).trim();
-    console.log("✅ Address updated to:", user.address);
   }
 
   if (experienceYears !== undefined) {
@@ -725,18 +717,13 @@ export const updateProfile = catchAsync(async (req, res) => {
     profileImage.startsWith("data:image")
   ) {
     try {
-      console.log("📸 Processing base64 image from Flutter...");
-
       const oldPublicId = user?.avatar?.public_id;
       if (oldPublicId) {
-        console.log("🗑️ Deleting old image:", oldPublicId);
         await deleteFromCloudinary(oldPublicId).catch(() => { });
       }
 
       const base64Data = profileImage.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
-
-      console.log("☁️ Uploading to Cloudinary...");
 
       const upload = await uploadOnCloudinary(buffer, {
         folder: "docmobi/users",
@@ -748,9 +735,7 @@ export const updateProfile = catchAsync(async (req, res) => {
         url: upload.secure_url,
       };
 
-      console.log("✅ Image uploaded successfully:", upload.secure_url);
     } catch (error) {
-      console.error("❌ Image upload error:", error);
       throw new AppError(
         httpStatus.BAD_REQUEST,
         "Failed to upload profile image",
@@ -759,7 +744,6 @@ export const updateProfile = catchAsync(async (req, res) => {
   }
 
   if (req.file?.buffer) {
-    console.log("📸 Processing file from multer...");
     const oldPublicId = user?.avatar?.public_id;
     if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => { });
 
@@ -829,22 +813,15 @@ export const updateProfile = catchAsync(async (req, res) => {
       const boolVal = parseBooleanInput(availabilityInput);
       if (boolVal !== undefined) {
         user.isVideoCallAvailable = boolVal;
-        console.log("✅ isVideoCallAvailable updated to:", user.isVideoCallAvailable);
       }
     }
   }
 
   await user.save();
-  console.log("💾 User saved successfully");
 
   const safeUser = await User.findById(user._id).select(
     "-password -refreshToken -verificationInfo -password_reset_token",
   );
-
-  console.log("📤 Sending response with:");
-  console.log("   - fullName:", safeUser.fullName);
-  console.log("   - address:", safeUser.address);
-  console.log("   - avatar:", safeUser.avatar?.url || "No avatar");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

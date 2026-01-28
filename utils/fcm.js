@@ -10,11 +10,7 @@ export const initializeFirebase = () => {
   try {
     // Check if Firebase is already initialized
     if (!admin.apps.length) {
-      console.log('🔍 Checking Firebase environment variables...');
-      console.log('   Project ID:', process.env.FIREBASE_PROJECT_ID ? 'Set' : 'Missing');
-      console.log('   Client Email:', process.env.FIREBASE_CLIENT_EMAIL ? 'Set' : 'Missing');
-      console.log('   Private Key:', process.env.FIREBASE_PRIVATE_KEY ? 'Set' : 'Missing');
-
+      // Check if required environment variables are set
       if (!process.env.FIREBASE_PROJECT_ID) {
         throw new Error('FIREBASE_PROJECT_ID is required in environment variables');
       }
@@ -29,14 +25,10 @@ export const initializeFirebase = () => {
         projectId: process.env.FIREBASE_PROJECT_ID,
         databaseURL: process.env.FIREBASE_DATABASE_URL,
       });
-
-      console.log('✅ Firebase Admin initialized successfully');
     } else {
       firebaseApp = admin.apps[0];
-      console.log('✅ Firebase Admin already initialized');
     }
   } catch (error) {
-    console.error('❌ Error initializing Firebase:', error);
     throw error;
   }
 };

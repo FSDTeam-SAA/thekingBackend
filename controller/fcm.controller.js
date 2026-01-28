@@ -96,8 +96,6 @@ export const registerFCMToken = async (req, res) => {
 
     await user.save();
 
-    console.log(`✅ FCM token registered for user ${userId}: ${platform}`);
-
     res.status(200).json({
       success: true,
       message: 'FCM token registered successfully',
@@ -107,7 +105,6 @@ export const registerFCMToken = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Error registering FCM token:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to register FCM token',
@@ -150,8 +147,6 @@ export const removeFCMToken = async (req, res) => {
         user.fcmTokens[tokenIndex].isActive = false;
         await user.save();
         
-        console.log(`✅ FCM token removed for user ${userId}`);
-        
         return res.status(200).json({
           success: true,
           message: 'FCM token removed successfully'
@@ -164,7 +159,6 @@ export const removeFCMToken = async (req, res) => {
       message: 'FCM token not found'
     });
   } catch (error) {
-    console.error('❌ Error removing FCM token:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to remove FCM token',
@@ -201,7 +195,6 @@ export const getFCMTokens = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Error getting FCM tokens:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get FCM tokens',
@@ -233,7 +226,6 @@ export const cleanupFCMTokens = async (req, res) => {
       await user.save();
       
       const removedCount = user.fcmTokens.length - activeTokens.length;
-      console.log(`✅ Cleaned up ${removedCount} inactive FCM tokens for user ${userId}`);
       
       res.status(200).json({
         success: true,
@@ -252,7 +244,6 @@ export const cleanupFCMTokens = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('❌ Error cleaning up FCM tokens:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to clean up FCM tokens',
