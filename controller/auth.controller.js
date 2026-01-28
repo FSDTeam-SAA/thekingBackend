@@ -25,17 +25,12 @@ const normalizeRole = (role) => {
 export const verifyOTP = catchAsync(async (req, res) => {
   const { email, otp } = req.body;
 
-  console.log("🔍 Verifying OTP for:", email);
-  console.log("🔑 OTP provided:", otp);
-
   const user = await User.isUserExistsByEmail(email);
   if (!user) {
-    console.log("❌ User not found");
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
   if (!user.password_reset_token) {
-    console.log("❌ No reset token found");
     throw new AppError(
       httpStatus.BAD_REQUEST,
       "No OTP request found. Please request a new OTP.",
@@ -45,18 +40,13 @@ export const verifyOTP = catchAsync(async (req, res) => {
   let decoded;
   try {
     decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
-    console.log("✅ Token verified. OTP from token:", decoded.otp);
   } catch (error) {
-    console.log("❌ Token verification failed");
     throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
   }
 
   if (decoded.otp !== otp) {
-    console.log("❌ OTP mismatch");
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
   }
-
-  console.log("✅ OTP verified successfully");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -329,18 +319,12 @@ export const login = catchAsync(async (req, res) => {
 export const forgetPassword = catchAsync(async (req, res) => {
   const { email } = req.body;
 
-  console.log("📧 Forgot password request for:", email);
-
   const user = await User.isUserExistsByEmail(email);
   if (!user) {
-    console.log("❌ User not found:", email);
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
-  console.log("✅ User found:", user.fullName);
-
   const otp = generateOTP();
-  console.log("🔑 Generated OTP:", otp); // Remove in production
 
   const otpToken = createToken(
     { otp },
@@ -351,15 +335,12 @@ export const forgetPassword = catchAsync(async (req, res) => {
   user.password_reset_token = otpToken;
   await user.save();
 
-  console.log("💾 OTP token saved to database");
 
   // ✅ Use the OTP email template
   try {
     const emailHtml = otpEmailTemplate(otp, user.fullName);
     await sendEmail(user.email, "Password Reset OTP - DocMobi", emailHtml);
-    console.log("✅ Email sent successfully to:", user.email);
   } catch (emailError) {
-    console.error("❌ Email sending failed:", emailError);
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       "Failed to send email. Please try again.",
@@ -378,17 +359,12 @@ export const forgetPassword = catchAsync(async (req, res) => {
 export const resetPassword = catchAsync(async (req, res) => {
   const { email, otp, password } = req.body;
 
-  console.log("🔄 Reset password request for:", email);
-  console.log("🔑 OTP provided:", otp);
-
   const user = await User.isUserExistsByEmail(email);
   if (!user) {
-    console.log("❌ User not found:", email);
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
 
   if (!user.password_reset_token) {
-    console.log("❌ No reset token found for user");
     throw new AppError(
       httpStatus.BAD_REQUEST,
       "Password reset token is invalid or expired",
@@ -398,24 +374,18 @@ export const resetPassword = catchAsync(async (req, res) => {
   let decoded;
   try {
     decoded = verifyToken(user.password_reset_token, process.env.OTP_SECRET);
-    console.log("✅ Token verified. OTP from token:", decoded.otp);
   } catch (error) {
-    console.log("❌ Token verification failed:", error.message);
     throw new AppError(httpStatus.BAD_REQUEST, "OTP expired or invalid");
   }
 
   if (decoded.otp !== otp) {
-    console.log("❌ OTP mismatch. Expected:", decoded.otp, "Got:", otp);
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
   }
 
-  console.log("✅ OTP verified successfully");
 
   user.password = password;
   user.password_reset_token = undefined;
   await user.save();
-
-  console.log("✅ Password updated successfully");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

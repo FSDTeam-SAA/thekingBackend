@@ -70,7 +70,6 @@ export const getReferralCode = catchAsync(async (req, res) => {
 export const updateReferralCode = catchAsync(async (req, res) => {
   const { id } = req.params;
   const { code, description, isActive } = req.body;
-  console.log();
 
   const referralCode = await ReferralCode.findById(id);
   if (!referralCode) {

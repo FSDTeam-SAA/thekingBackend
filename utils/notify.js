@@ -38,7 +38,6 @@ export const createNotification = async ({
       "reel_commented",
     ];
     if (!validTypes.includes(type)) {
-      console.log(`Invalid notification type: ${type}`);
       return { success: false, message: "Invalid notification type" };
     }
 
@@ -53,15 +52,12 @@ export const createNotification = async ({
       meta,
     });
 
-    console.log(`Notification created: ${type} for user ${userId}`);
-
     return {
       success: true,
       notificationId: notification._id,
       message: "Notification created successfully",
     };
   } catch (error) {
-    console.error("❌ Error creating notification:", error);
     return {
       success: false,
       message: "Failed to create notification",

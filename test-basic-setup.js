@@ -61,10 +61,6 @@ async function testBasicSetup() {
     }
 
     console.log('\n✅ Basic Setup Test Complete!');
-    console.log('📋 To test with actual FCM:');
-    console.log('   1. Set up Firebase project');
-    console.log('   2. Update .env with Firebase credentials');
-    console.log('   3. Run: npm start');
 
   } catch (error) {
     console.error('❌ Test failed:', error);
