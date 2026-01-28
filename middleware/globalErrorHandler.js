@@ -40,13 +40,18 @@ const globalErrorHandler = (err, req, res, next) => {
     ];
   }
 
-  return res.status(statusCode).json({
+  const response = {
     success: false,
     message,
     errorSources,
     err,
-    stack: err.stack,
-  });
+  };
+
+  if (process.env.NODE_ENV === 'development') {
+    response.stack = err.stack.split('\n').map(l => l.trimStart());
+  }
+
+  return res.status(statusCode).json(response);
 };
 
 export default globalErrorHandler;
