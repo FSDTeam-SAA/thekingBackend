@@ -423,7 +423,7 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   }
 
   // 🔹 Status filter
-  if (status) {
+  if (status && status !== "all") {
     filter.status = status;
   }
 
@@ -486,7 +486,6 @@ export const getMyAppointments = catchAsync(async (req, res) => {
     },
   });
 });
-
 
 export const updateAppointment = catchAsync(async (req, res) => {
   const { id } = req.params;
