@@ -22,7 +22,7 @@ app.set("trust proxy", true);
 const server = createServer(app);
 export const io = new Server(server, {
   cors: {
-    origin: ["*"],
+    origin: ["https://admin.docmobidz.com"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   },
 });
@@ -30,7 +30,7 @@ export const io = new Server(server, {
 app.use(
   cors({
     credentials: true,
-    origin: ["*"],
+    origin: ["https://admin.docmobidz.com"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   }),
 );
@@ -47,7 +47,6 @@ app.use("/public", express.static("public"));
 //   console.log(`📥 ${req.method} ${req.path}`);
 //   next();
 // });
-
 app.use("/api/v1", router);
 
 app.get("/", serverRunningTemplate);
@@ -76,7 +75,9 @@ await mongoConnect().then(() => {
   const PORT = process.env.PORT || 5000;
   try {
     server.listen(PORT, () => {
-      console.log(chalk.green.bold(`Server is running on http://localhost:${PORT}  `));
+      console.log(
+        chalk.green.bold(`Server is running on http://localhost:${PORT}  `),
+      );
     });
   } catch (error) {
     console.error(chalk.red.bold("Server error:", error));

@@ -6,42 +6,42 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB for videos
+    fileSize: 50 * 1024 * 1024, // 50 MB for videos
   },
   fileFilter: (req, file, cb) => {
-    console.log('📥 File received:', {
-      fieldname: file.fieldname,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-    });
-
-    // ✅ FIXED: Accept both mimetype AND file extension
+    // Accept both mimetype AND file extension and images
     const allowedMimeTypes = [
-      'video/mp4',
-      'video/quicktime',
-      'video/x-msvideo',
-      'video/mpeg',
-      'video/webm',
-      'application/octet-stream', // ✅ iOS sends this for videos
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "video/mp4",
+      "video/quicktime",
+      "video/x-msvideo",
+      "video/mpeg",
+      "video/webm",
+      "application/octet-stream",
     ];
 
-    const allowedExtensions = ['.mp4', '.mov', '.avi', '.mpeg', '.webm'];
+    const allowedExtensions = [
+      ".mp4",
+      ".mov",
+      ".avi",
+      ".mpeg",
+      ".webm",
+      ".jpg",
+      ".jpeg",
+      ".png",
+    ];
     const ext = path.extname(file.originalname).toLowerCase();
 
-    // ✅ Check EITHER mimetype OR file extension
+    // Check both mimetype and extension
     const isValidMimeType = allowedMimeTypes.includes(file.mimetype);
     const isValidExtension = allowedExtensions.includes(ext);
 
     if (isValidMimeType || isValidExtension) {
-      console.log('✅ File accepted:', file.originalname);
       cb(null, true);
     } else {
-      console.log('❌ File rejected:', {
-        mimetype: file.mimetype,
-        extension: ext,
-      });
-      cb(new Error('Only video files allowed'), false);
+      cb(new Error("Only images and video files allowed"), false);
     }
   },
 });
