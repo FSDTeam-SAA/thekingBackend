@@ -35,21 +35,72 @@ export const createReferralCode = catchAsync(async (req, res) => {
 });
 
 export const getReferralCodes = catchAsync(async (req, res) => {
-  const { status } = req.query;
+  const { status , page, limit, sortBy, search } = req.query;
+
+  // Base filter
   const filter = {};
 
+  // Status filter
   if (status === "active") filter.isActive = true;
   else if (status === "inactive") filter.isActive = false;
+  else if (status === "all") filter.isActive = { $exists: true };
 
-  const referralCodes = await ReferralCode.find(filter).sort({ createdAt: -1 });
+  // Search (ONLY code & description)
+  if (search) {
+    const regex = new RegExp(search, "i");
+    filter.$or = [{ code: regex }, { description: regex }];
+  }
 
+  // Sort logic
+  let sort = {};
+  if (sortBy === "oldestToNewest") {
+    sort = { createdAt: 1 };
+  } else {
+    sort = { createdAt: -1 };
+  }
+
+  // Pagination
+  const currentPage = Math.max(Number(page) || 1, 1);
+  const pageLimit = Math.min(Number(limit) || 10, 100);
+  const skip = (currentPage - 1) * pageLimit;
+
+  // Count total
+  const total = await ReferralCode.countDocuments(filter);
+
+  // Fetch referral codes
+  const referralCodes = await ReferralCode.find(filter)
+    .sort(sort)
+    .skip(skip)
+    .limit(pageLimit);
+
+    if (referralCodes.length === 0) {
+      throw new AppError(httpStatus.NOT_FOUND, "No referral codes found");
+    }
+
+  // Pagination meta
+  const totalPages = Math.ceil(total / pageLimit);
+  const from = total === 0 ? 0 : skip + 1;
+  const to = Math.min(skip + referralCodes.length, total);
+
+  // Send response
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Referral codes fetched successfully",
     data: referralCodes,
+    pagination: {
+      page: currentPage,
+      limit: pageLimit,
+      total,
+      totalPages,
+      from,
+      to,
+      hasNext: currentPage < totalPages,
+      hasPrev: currentPage > 1,
+    },
   });
 });
+
 
 export const getReferralCode = catchAsync(async (req, res) => {
   const { id } = req.params;
