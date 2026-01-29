@@ -61,14 +61,14 @@ const sanitizeWeeklySchedule = (input) => {
 
       const slots = Array.isArray(item?.slots)
         ? item.slots
-          .map((s) => {
-            const start = String(s?.start || "").trim();
-            const end = String(s?.end || "").trim();
-            if (!isValidTime(start) || !isValidTime(end)) return null;
-            if (start >= end) return null;
-            return { start, end };
-          })
-          .filter(Boolean)
+            .map((s) => {
+              const start = String(s?.start || "").trim();
+              const end = String(s?.end || "").trim();
+              if (!isValidTime(start) || !isValidTime(end)) return null;
+              if (start >= end) return null;
+              return { start, end };
+            })
+            .filter(Boolean)
         : [];
 
       return { day, isActive, slots };
@@ -166,8 +166,12 @@ export const getProfile = catchAsync(async (req, res) => {
   // ✅ Convert location to proper format
   const userData = user.toObject();
   if (userData.location) {
-    userData.latitude = userData.location.lat ? parseFloat(userData.location.lat) : null;
-    userData.longitude = userData.location.lng ? parseFloat(userData.location.lng) : null;
+    userData.latitude = userData.location.lat
+      ? parseFloat(userData.location.lat)
+      : null;
+    userData.longitude = userData.location.lng
+      ? parseFloat(userData.location.lng)
+      : null;
   }
 
   sendResponse(res, {
@@ -186,16 +190,16 @@ export const searchDoctors = catchAsync(async (req, res) => {
 
     ...(search
       ? [
-        {
-          $match: {
-            $or: [
-              { fullName: { $regex: search, $options: "i" } },
-              { specialty: { $regex: search, $options: "i" } },
-              { address: { $regex: search, $options: "i" } },
-            ],
+          {
+            $match: {
+              $or: [
+                { fullName: { $regex: search, $options: "i" } },
+                { specialty: { $regex: search, $options: "i" } },
+                { address: { $regex: search, $options: "i" } },
+              ],
+            },
           },
-        },
-      ]
+        ]
       : []),
 
     {
@@ -364,26 +368,85 @@ export const getNearbyDoctors = catchAsync(async (req, res) => {
  */
 export const getUsersByRole = catchAsync(async (req, res) => {
   const { role } = req.params;
+  const { page, limit, sortBy, status, search } = req.query;
 
+  // Validate role
   const allowedRoles = ["patient", "doctor", "admin"];
   if (!allowedRoles.includes(role)) {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid role");
   }
 
-  let users = await User.find({ role })
+  // Sort logic
+  let sort = {};
+  if (sortBy === "oldestToNewest") {
+    sort = { createdAt: 1 };
+  } else {
+    sort = { createdAt: -1 };
+  }
+
+  // Pagination
+  const currentPage = Math.max(Number(page) || 1, 1);
+  const pageLimit = Math.min(Number(limit) || 10, 100);
+  const skip = (currentPage - 1) * pageLimit;
+
+  // Base filter
+  const matchFilter = { role };
+
+  // Status filter
+  if (status && status !== "all") {
+    matchFilter.accountStatus = status;
+  }
+
+  // Search filter
+  if (search) {
+    const regex = new RegExp(search, "i");
+    matchFilter.$or = [
+      { fullName: regex },
+      { specialty: regex },
+      { email: regex },
+      { address: regex },
+    ];
+  }
+
+  // Count total
+  const total = await User.countDocuments(matchFilter);
+
+  // Fetch users
+  let users = await User.find(matchFilter)
     .select("-password -refreshToken -verificationInfo -password_reset_token")
+    .sort(sort)
+    .skip(skip)
+    .limit(pageLimit)
     .lean();
 
+  // Non-doctor response
   if (role !== "doctor") {
+    const totalPages = Math.ceil(total / pageLimit);
+    const from = total === 0 ? 0 : skip + 1;
+    const to = Math.min(skip + users.length, total);
+
     return sendResponse(res, {
       statusCode: httpStatus.OK,
       success: true,
       message: `Users fetched for role: ${role}`,
       data: users,
+      pagination: {
+        page: currentPage,
+        limit: pageLimit,
+        total,
+        totalPages,
+        from,
+        to,
+        hasNext: currentPage < totalPages,
+        hasPrev: currentPage > 1,
+      },
     });
   }
 
+  // Doctor rating aggregation
   const doctorIds = users.map((u) => u._id);
+  const statMap = new Map();
+
   if (doctorIds.length) {
     const stats = await DoctorReview.aggregate([
       {
@@ -402,33 +465,44 @@ export const getUsersByRole = catchAsync(async (req, res) => {
       },
     ]);
 
-    const statMap = new Map();
     stats.forEach((s) => {
       statMap.set(String(s._id), {
         avgRating: Number(s.avgRating?.toFixed(1)) || 0,
         totalReviews: s.totalReviews || 0,
       });
     });
-
-    users = users.map((u) => {
-      const s = statMap.get(String(u._id)) || { avgRating: 0, totalReviews: 0 };
-      return {
-        ...u,
-        ratingSummary: s,
-      };
-    });
-  } else {
-    users = users.map((u) => ({
-      ...u,
-      ratingSummary: { avgRating: 0, totalReviews: 0 },
-    }));
   }
 
+  // Attach rating summary
+  users = users.map((u) => ({
+    ...u,
+    ratingSummary: statMap.get(String(u._id)) || {
+      avgRating: 0,
+      totalReviews: 0,
+    },
+  }));
+
+  // Pagination meta
+  const totalPages = Math.ceil(total / pageLimit);
+  const from = total === 0 ? 0 : skip + 1;
+  const to = Math.min(skip + users.length, total);
+
+  // Final response
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: `Users fetched for role: ${role}`,
     data: users,
+    pagination: {
+      page: currentPage,
+      limit: pageLimit,
+      total,
+      totalPages,
+      from,
+      to,
+      hasNext: currentPage < totalPages,
+      hasPrev: currentPage > 1,
+    },
   });
 });
 
@@ -615,7 +689,13 @@ export const getUserDetails = catchAsync(async (req, res) => {
   if (user.role === "doctor") {
     const stats = await DoctorReview.aggregate([
       { $match: { doctor: new mongoose.Types.ObjectId(id) } },
-      { $group: { _id: "$doctor", avgRating: { $avg: "$rating" }, totalReviews: { $sum: 1 } } }
+      {
+        $group: {
+          _id: "$doctor",
+          avgRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+        },
+      },
     ]);
 
     if (stats.length) {
@@ -665,8 +745,8 @@ export const updateProfile = catchAsync(async (req, res) => {
     visitingHoursText,
     medicalLicenseNumber,
     isVideoCallAvailable, // ✅ NEW: Support for main key
-    isVideoAvailable,     // ✅ NEW: Support for redundant key 1
-    isAvailable,          // ✅ NEW: Support for redundant key 2
+    isVideoAvailable, // ✅ NEW: Support for redundant key 1
+    isAvailable, // ✅ NEW: Support for redundant key 2
   } = req.body;
 
   const user = await User.findById(req.user._id);
@@ -719,7 +799,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     try {
       const oldPublicId = user?.avatar?.public_id;
       if (oldPublicId) {
-        await deleteFromCloudinary(oldPublicId).catch(() => { });
+        await deleteFromCloudinary(oldPublicId).catch(() => {});
       }
 
       const base64Data = profileImage.split(",")[1];
@@ -734,7 +814,6 @@ export const updateProfile = catchAsync(async (req, res) => {
         public_id: upload.public_id,
         url: upload.secure_url,
       };
-
     } catch (error) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -745,7 +824,7 @@ export const updateProfile = catchAsync(async (req, res) => {
 
   if (req.file?.buffer) {
     const oldPublicId = user?.avatar?.public_id;
-    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => { });
+    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => {});
 
     const upload = await uploadOnCloudinary(req.file.buffer, {
       folder: "docmobi/users",
@@ -806,8 +885,12 @@ export const updateProfile = catchAsync(async (req, res) => {
 
     // ✅ NEW: Handle Video Call Availability persistence
     // We check all potential keys for maximum compatibility with Flutter frontend
-    const availabilityInput = isVideoCallAvailable !== undefined ? isVideoCallAvailable :
-      (isVideoAvailable !== undefined ? isVideoAvailable : isAvailable);
+    const availabilityInput =
+      isVideoCallAvailable !== undefined
+        ? isVideoCallAvailable
+        : isVideoAvailable !== undefined
+          ? isVideoAvailable
+          : isAvailable;
 
     if (availabilityInput !== undefined) {
       const boolVal = parseBooleanInput(availabilityInput);
@@ -1130,7 +1213,7 @@ export const deleteUser = catchAsync(async (req, res) => {
 
   // best-effort cleanup of avatar
   if (user.avatar?.public_id) {
-    await deleteFromCloudinary(user.avatar.public_id).catch(() => { });
+    await deleteFromCloudinary(user.avatar.public_id).catch(() => {});
   }
 
   await User.findByIdAndDelete(id);
