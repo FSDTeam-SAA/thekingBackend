@@ -2,9 +2,11 @@
 import AppError from "../errors/AppError.js";
 import Category from "../model/category.model.js";
 import catchAsync from "../utils/catchAsync.js";
-import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/commonMethod.js";
+import {
+  deleteFromCloudinary,
+  uploadOnCloudinary,
+} from "../utils/commonMethod.js";
 import sendResponse from "../utils/sendResponse.js";
-
 
 // POST
 export const createCategory = catchAsync(async (req, res) => {
@@ -45,24 +47,91 @@ export const createCategory = catchAsync(async (req, res) => {
   });
 });
 
-
 // GET ALL
 export const getAllCategoriesAdmin = catchAsync(async (req, res) => {
-  const data = await Category.find().sort({ createdAt: -1 });
-  sendResponse(res, { statusCode: 200, success: true, message: "Category fetched successfully", data });
+  const { page, limit, search, status, sortBy } = req.query;
+
+  // Base filter
+  const filter = {};
+
+  // Status filter
+  if (status === "active") filter.status = true;
+  else if (status === "inactive") filter.status = false;
+
+  // Sort logic
+  let sort = {};
+  if (sortBy === "oldestToNewest") {
+    sort = { createdAt: 1 };
+  } else {
+    sort = { createdAt: -1 };
+  }
+
+  // Search by speciality_name
+  if (search) {
+    const regex = new RegExp(search, "i");
+    filter.speciality_name = regex;
+  }
+
+  // Pagination
+  const currentPage = Math.max(Number(page) || 1, 1);
+  const pageLimit = Math.min(Number(limit) || 10, 100);
+  const skip = (currentPage - 1) * pageLimit;
+
+  // Count total
+  const total = await Category.countDocuments(filter);
+
+  // Fetch categories (FIXED SORT)
+  const categories = await Category.find(filter)
+    .sort(sort)
+    .skip(skip)
+    .limit(pageLimit);
+
+  if (!categories) throw new AppError(404, "Category not found");
+
+  // Pagination meta
+  const totalPages = Math.ceil(total / pageLimit);
+  const from = total === 0 ? 0 : skip + 1;
+  const to = Math.min(skip + categories.length, total);
+
+  // Response
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Category fetched successfully",
+    data: categories,
+    pagination: {
+      page: currentPage,
+      limit: pageLimit,
+      total,
+      totalPages,
+      from,
+      to,
+      hasNext: currentPage < totalPages,
+      hasPrev: currentPage > 1,
+    },
+  });
 });
 
 export const getAllCategoriesPublic = catchAsync(async (req, res) => {
   const data = await Category.find({ status: true }).sort({ createdAt: -1 });
-  sendResponse(res, { statusCode: 200, success: true, message: "Category fetched successfully", data });
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Category fetched successfully",
+    data,
+  });
 });
-
 
 // GET SINGLE
 export const getSingleCategory = catchAsync(async (req, res) => {
   const data = await Category.findById(req.params.id);
   if (!data) throw new AppError(404, "Invalid Category id");
-  sendResponse(res, { statusCode: 200, success: true, message: "Category fetched successfully", data });
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Category fetched successfully",
+    data,
+  });
 });
 
 // PATCH
@@ -80,7 +149,9 @@ export const updateCategory = catchAsync(async (req, res) => {
 
   if (req.file?.buffer) {
     if (category.category_image_public_id) {
-      await deleteFromCloudinary(category.category_image_public_id).catch(() => {});
+      await deleteFromCloudinary(category.category_image_public_id).catch(
+        () => {},
+      );
     }
 
     const uploaded = await uploadOnCloudinary(req.file.buffer, {
@@ -93,7 +164,12 @@ export const updateCategory = catchAsync(async (req, res) => {
   }
 
   await category.save();
-  sendResponse(res, { statusCode: 200, success: true, message: "Updated", data: category });
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Updated",
+    data: category,
+  });
 });
 
 // DELETE
@@ -102,9 +178,15 @@ export const deleteCategory = catchAsync(async (req, res) => {
   if (!category) throw new AppError(404, "Invalid Category id");
 
   if (category.category_image_public_id) {
-    await deleteFromCloudinary(category.category_image_public_id).catch(() => {});
+    await deleteFromCloudinary(category.category_image_public_id).catch(
+      () => {},
+    );
   }
 
   await category.deleteOne();
-  sendResponse(res, { statusCode: 200, success: true, message: "Deleted Successfully" });
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Deleted Successfully",
+  });
 });
