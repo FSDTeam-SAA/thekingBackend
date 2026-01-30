@@ -754,7 +754,10 @@ export const updateProfile = catchAsync(async (req, res) => {
 
   if (fullName !== undefined) user.fullName = String(fullName).trim();
   if (username !== undefined) user.username = String(username).trim();
-  if (phone !== undefined) user.phone = String(phone).trim();
+  if (phone !== undefined) {
+    const p = String(phone).trim();
+    user.phone = p === "" ? undefined : p;
+  }
   if (bio !== undefined) user.bio = String(bio).trim();
   if (gender !== undefined) user.gender = gender;
   if (dob !== undefined) user.dob = dob;
@@ -779,6 +782,9 @@ export const updateProfile = catchAsync(async (req, res) => {
     const lng = loc?.lng;
 
     if (lat === undefined || lng === undefined) {
+      // Optional: ignore if partial? But error is safer.
+      // However, if frontend sends partial, we might want to skip.
+      // Keeping existing validation as robust.
       throw new AppError(
         httpStatus.BAD_REQUEST,
         "location must include lat and lng",
@@ -880,7 +886,8 @@ export const updateProfile = catchAsync(async (req, res) => {
     }
 
     if (medicalLicenseNumber !== undefined) {
-      user.medicalLicenseNumber = String(medicalLicenseNumber).trim();
+      const license = String(medicalLicenseNumber).trim();
+      user.medicalLicenseNumber = license === "" ? undefined : license;
     }
 
     // ✅ NEW: Handle Video Call Availability persistence
