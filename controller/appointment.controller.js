@@ -481,6 +481,11 @@ export const getMyAppointments = catchAsync(async (req, res) => {
       status: 1,
       bookedFor: 1,
       createdAt: 1,
+      symptoms: 1,
+      medicalDocuments: 1,
+      paymentScreenshot: 1,
+      notes: 1,
+      reason: 1,
     },
   });
 
@@ -620,7 +625,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (medicalDocsFiles.length > 0) {
     for (const doc of appointment.medicalDocuments || []) {
       if (doc?.public_id) {
-        await deleteFromCloudinary(doc.public_id).catch(() => {});
+        await deleteFromCloudinary(doc.public_id).catch(() => { });
       }
     }
 
@@ -638,7 +643,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   if (paymentFiles[0]) {
     if (appointment.paymentScreenshot?.public_id) {
       await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
-        () => {},
+        () => { },
       );
     }
 
@@ -667,7 +672,7 @@ export const updateAppointment = catchAsync(async (req, res) => {
   const scheduleChanged =
     (updates.appointmentDate &&
       new Date(updates.appointmentDate).getTime() !==
-        new Date(appointment.appointmentDate).getTime()) ||
+      new Date(appointment.appointmentDate).getTime()) ||
     (updates.time && updates.time !== appointment.time);
 
   if (scheduleChanged) {
@@ -957,13 +962,13 @@ export const deleteAppointment = catchAsync(async (req, res) => {
 
   for (const doc of appointment.medicalDocuments || []) {
     if (doc?.public_id) {
-      await deleteFromCloudinary(doc.public_id).catch(() => {});
+      await deleteFromCloudinary(doc.public_id).catch(() => { });
     }
   }
 
   if (appointment.paymentScreenshot?.public_id) {
     await deleteFromCloudinary(appointment.paymentScreenshot.public_id).catch(
-      () => {},
+      () => { },
     );
   }
 
@@ -1077,9 +1082,9 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
         weeklyByWeekday:
           view === "weekly"
             ? {
-                labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-                values: weeklyByWeekday,
-              }
+              labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+              values: weeklyByWeekday,
+            }
             : null,
       },
     });
