@@ -6,7 +6,6 @@ import { User } from "../model/user.model.js";
  * Create notification, store in database, and send FCM Push
  */
 import admin from "firebase-admin";
-import { User } from "../model/user.model.js";
 
 // Initialize Firebase Admin
 // Ideally, use environment variable for credentials path or content
