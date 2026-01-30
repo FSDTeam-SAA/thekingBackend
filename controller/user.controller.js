@@ -61,14 +61,14 @@ const sanitizeWeeklySchedule = (input) => {
 
       const slots = Array.isArray(item?.slots)
         ? item.slots
-            .map((s) => {
-              const start = String(s?.start || "").trim();
-              const end = String(s?.end || "").trim();
-              if (!isValidTime(start) || !isValidTime(end)) return null;
-              if (start >= end) return null;
-              return { start, end };
-            })
-            .filter(Boolean)
+          .map((s) => {
+            const start = String(s?.start || "").trim();
+            const end = String(s?.end || "").trim();
+            if (!isValidTime(start) || !isValidTime(end)) return null;
+            if (start >= end) return null;
+            return { start, end };
+          })
+          .filter(Boolean)
         : [];
 
       return { day, isActive, slots };
@@ -190,16 +190,16 @@ export const searchDoctors = catchAsync(async (req, res) => {
 
     ...(search
       ? [
-          {
-            $match: {
-              $or: [
-                { fullName: { $regex: search, $options: "i" } },
-                { specialty: { $regex: search, $options: "i" } },
-                { address: { $regex: search, $options: "i" } },
-              ],
-            },
+        {
+          $match: {
+            $or: [
+              { fullName: { $regex: search, $options: "i" } },
+              { specialty: { $regex: search, $options: "i" } },
+              { address: { $regex: search, $options: "i" } },
+            ],
           },
-        ]
+        },
+      ]
       : []),
 
     {
@@ -799,7 +799,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     try {
       const oldPublicId = user?.avatar?.public_id;
       if (oldPublicId) {
-        await deleteFromCloudinary(oldPublicId).catch(() => {});
+        await deleteFromCloudinary(oldPublicId).catch(() => { });
       }
 
       const base64Data = profileImage.split(",")[1];
@@ -824,7 +824,7 @@ export const updateProfile = catchAsync(async (req, res) => {
 
   if (req.file?.buffer) {
     const oldPublicId = user?.avatar?.public_id;
-    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => {});
+    if (oldPublicId) await deleteFromCloudinary(oldPublicId).catch(() => { });
 
     const upload = await uploadOnCloudinary(req.file.buffer, {
       folder: "docmobi/users",
@@ -1213,7 +1213,7 @@ export const deleteUser = catchAsync(async (req, res) => {
 
   // best-effort cleanup of avatar
   if (user.avatar?.public_id) {
-    await deleteFromCloudinary(user.avatar.public_id).catch(() => {});
+    await deleteFromCloudinary(user.avatar.public_id).catch(() => { });
   }
 
   await User.findByIdAndDelete(id);
@@ -1250,5 +1250,43 @@ export const updateLocation = catchAsync(async (req, res) => {
     success: true,
     message: "Location updated",
     data: user,
+  });
+});
+
+/**
+ * Register FCM device token
+ */
+export const registerFCMToken = catchAsync(async (req, res) => {
+  const { token, platform } = req.body;
+  if (!token || !platform) {
+    throw new AppError(httpStatus.BAD_REQUEST, "token and platform required");
+  }
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  // Remove existing entry for this token if any
+  user.fcmTokens = (user.fcmTokens || []).filter((t) => t.token !== token);
+
+  // Add new token
+  user.fcmTokens.push({
+    token,
+    platform,
+    isActive: true,
+    createdAt: new Date(),
+  });
+
+  // Optional: Limit total tokens (e.g., max 5 devices) to prevent bloat
+  if (user.fcmTokens.length > 5) {
+    user.fcmTokens.shift(); // Remove oldest
+  }
+
+  await user.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Device token registered",
+    data: null,
   });
 });

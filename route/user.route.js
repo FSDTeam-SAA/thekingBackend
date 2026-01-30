@@ -15,6 +15,7 @@ import {
   updateLocation,
   searchDoctors,
   getNearbyDoctors,
+  registerFCMToken,
 } from "../controller/user.controller.js";
 import { protect, isAdmin } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -42,5 +43,7 @@ router.patch("/doctor/:id/approval", protect, updateDoctorApprovalStatus);
 //update user (patient only)
 router.patch("/update-realtime-location", protect, updateLocation);
 router.post("/find-doctors", searchDoctors);
+router.post("/fcm-token", protect, registerFCMToken);
+
 
 export default router;
