@@ -95,7 +95,7 @@ export const createNotification = async ({
           .map(t => t.token);
 
         if (tokens.length > 0) {
-          // Basic payload
+          // Enhanced payload with high priority
           const message = {
             notification: {
               title: title,
@@ -104,8 +104,26 @@ export const createNotification = async ({
             data: {
               type: type,
               appointmentId: appointmentId ? String(appointmentId) : "",
-              click_action: "FLUTTER_NOTIFICATION_CLICK", // Standard for Flutter
-              // Flatten meta if needed, but for now sending simple
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
+            },
+            android: {
+              priority: 'high',
+              notification: {
+                sound: 'default',
+              },
+            },
+            apns: {
+              payload: {
+                aps: {
+                  sound: 'default',
+                  badge: 1,
+                  'content-available': 1,
+                  'mutable-content': 1,
+                },
+              },
+              headers: {
+                'apns-priority': '10', // 10 for immediate delivery
+              },
             },
             tokens: tokens
           };

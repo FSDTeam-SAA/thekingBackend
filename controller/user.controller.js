@@ -1261,39 +1261,5 @@ export const updateLocation = catchAsync(async (req, res) => {
 });
 
 /**
- * Register FCM device token
+ * Note: registerFCMToken is now handled in fcm.controller.js
  */
-export const registerFCMToken = catchAsync(async (req, res) => {
-  const { token, platform } = req.body;
-  if (!token || !platform) {
-    throw new AppError(httpStatus.BAD_REQUEST, "token and platform required");
-  }
-
-  const user = await User.findById(req.user._id);
-  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
-
-  // Remove existing entry for this token if any
-  user.fcmTokens = (user.fcmTokens || []).filter((t) => t.token !== token);
-
-  // Add new token
-  user.fcmTokens.push({
-    token,
-    platform,
-    isActive: true,
-    createdAt: new Date(),
-  });
-
-  // Optional: Limit total tokens (e.g., max 5 devices) to prevent bloat
-  if (user.fcmTokens.length > 5) {
-    user.fcmTokens.shift(); // Remove oldest
-  }
-
-  await user.save();
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Device token registered",
-    data: null,
-  });
-});

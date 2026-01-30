@@ -15,8 +15,8 @@ import {
   updateLocation,
   searchDoctors,
   getNearbyDoctors,
-  registerFCMToken,
 } from "../controller/user.controller.js";
+import { registerFCMToken } from "../controller/fcm.controller.js";
 import { protect, isAdmin } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
 

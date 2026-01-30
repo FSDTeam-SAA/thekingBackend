@@ -61,28 +61,38 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
       notification: {
         title: notification.title || 'Docmobi Notification',
         body: notification.body || 'You have a new notification',
-        sound: 'default',
-        badge: '1',
-        ...(notification.android && {
-          android: notification.android
-        }),
-        ...(notification.ios && {
-          apns: notification.ios
-        }),
       },
       data: {
         type: data.type || 'general',
         click_action: data.clickAction || '',
-        ...data
+        ...data,
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          ...(notification.android && notification.android),
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            'content-available': 1,
+            'mutable-content': 1,
+            ...(notification.ios && notification.ios),
+          },
+        },
+        headers: {
+          'apns-priority': '10', // 10 for immediate delivery, 5 for power-optimized
+        },
       },
       tokens: tokens,
-      priority: 'high',
-      contentAvailable: true,
-      mutableContent: true,
     };
 
     const response = await admin.messaging().sendMulticast(message);
-    
+
     console.log(`📱 FCM notification sent to ${tokens.length} devices:`, {
       successCount: response.successCount,
       failureCount: response.failureCount,
@@ -163,7 +173,7 @@ export const sendFCMNotificationToUsers = async (userIds, notification, data = {
 
     // Send notification
     const result = await sendFCMNotification(tokens, notification, enrichedData);
-    
+
     // Handle failed tokens (cleanup)
     if (result.failureCount > 0) {
       const failedTokens = [];
@@ -172,7 +182,7 @@ export const sendFCMNotificationToUsers = async (userIds, notification, data = {
           failedTokens.push(tokens[index]);
         }
       });
-      
+
       if (failedTokens.length > 0) {
         await cleanupInactiveTokens(failedTokens, UserModel);
       }
@@ -193,12 +203,12 @@ export const sendFCMNotificationToUsers = async (userIds, notification, data = {
 export const cleanupInactiveTokens = async (tokens, UserModel) => {
   try {
     console.log(`🧹 Cleaning up ${tokens.length} inactive FCM tokens`);
-    
+
     await UserModel.updateMany(
       { 'fcmTokens.token': { $in: tokens } },
       { $pull: { fcmTokens: { token: { $in: tokens } } } }
     );
-    
+
     console.log('✅ Inactive tokens cleaned up successfully');
   } catch (error) {
     console.error('❌ Error cleaning up inactive tokens:', error);
@@ -230,9 +240,9 @@ export const sendTopicNotification = async (topic, notification, data = {}) => {
     };
 
     const response = await admin.messaging().send(message);
-    
+
     console.log(`📱 FCM topic notification sent to ${topic}:`, response.messageId);
-    
+
     return {
       success: true,
       messageId: response.messageId
@@ -251,10 +261,10 @@ export const sendTopicNotification = async (topic, notification, data = {}) => {
 export const subscribeToTopic = async (tokens, topic) => {
   try {
     const response = await admin.messaging().subscribeToTopic(tokens, topic);
-    
+
     console.log(`✅ Subscribed ${tokens.length} tokens to topic: ${topic}`);
     console.log('Subscription response:', response);
-    
+
     return {
       success: true,
       successCount: response.successCount,
@@ -274,9 +284,9 @@ export const subscribeToTopic = async (tokens, topic) => {
 export const unsubscribeFromTopic = async (tokens, topic) => {
   try {
     const response = await admin.messaging().unsubscribeFromTopic(tokens, topic);
-    
+
     console.log(`✅ Unsubscribed ${tokens.length} tokens from topic: ${topic}`);
-    
+
     return {
       success: true,
       successCount: response.successCount,
@@ -297,7 +307,7 @@ export const validateFCMToken = (token) => {
   if (!token || typeof token !== 'string') {
     return false;
   }
-  
+
   // Basic validation - FCM tokens are typically 100-200 characters
   return token.length >= 100 && token.length <= 200;
 };
