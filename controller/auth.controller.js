@@ -10,6 +10,7 @@ import { ReferralCode } from "../model/referralCode.model.js";
 import mongoose from "mongoose";
 import { createNotification } from "../utils/notify.js";
 import { io } from "../server.js";
+import AppSetting from "../model/appSeeting.model.js";
 
 const normalizeRole = (role) => {
   const r = String(role || "patient")
@@ -103,10 +104,15 @@ export const register = catchAsync(async (req, res) => {
       );
     }
 
-    if (roleNormalized === "doctor" && !refferalCode) {
+    //fetch referral enable status
+    const settings = await AppSetting.findOne().select(
+      "referralSystemEnabled _id",
+    );
+
+    if (!settings) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        "Referral code is required for doctors",
+        "App setting not found for referral enable status",
       );
     }
 
@@ -119,20 +125,29 @@ export const register = catchAsync(async (req, res) => {
 
     let referral = null;
 
-    if (roleNormalized === "doctor" && refferalCode) {
-      // referral code validation (inside transaction)
-      const referralData = await ReferralCode.findOne(
-        { code: refferalCode, isActive: true },
-        null,
-        {
-          session,
-        },
-      );
-      if (!referralData) {
-        throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
+    if (settings.referralSystemEnabled) {
+      if (roleNormalized === "doctor" && !refferalCode) {
+        throw new AppError(
+          httpStatus.BAD_REQUEST,
+          "Referral code is required for doctors",
+        );
       }
 
-      referral = referralData;
+      if (roleNormalized === "doctor" && refferalCode) {
+        // referral code validation (inside transaction)
+        const referralData = await ReferralCode.findOne(
+          { code: refferalCode, isActive: true },
+          null,
+          {
+            session,
+          },
+        );
+        if (!referralData) {
+          throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
+        }
+
+        referral = referralData;
+      }
     }
 
     // duplicate check (inside transaction)
@@ -179,7 +194,8 @@ export const register = catchAsync(async (req, res) => {
           medicalLicenseNumber:
             roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
           verificationInfo: { token: "" },
-          refferalCode: refferalCode === "patient" ? undefined : refferalCode,
+          refferalCode:
+            referral && refferalCode === "patient" ? undefined : refferalCode,
           approvalStatus: roleNormalized === "doctor" ? "pending" : "approved",
         },
       ],
@@ -200,7 +216,7 @@ export const register = catchAsync(async (req, res) => {
     // }
     //!end remove user
 
-    if (roleNormalized === "doctor") {
+    if (referral && roleNormalized === "doctor") {
       // update referral code usage (inside transaction)
       const updatedReferral = await ReferralCode.findByIdAndUpdate(
         referral._id,
@@ -335,7 +351,6 @@ export const forgetPassword = catchAsync(async (req, res) => {
   user.password_reset_token = otpToken;
   await user.save();
 
-
   // ✅ Use the OTP email template
   try {
     const emailHtml = otpEmailTemplate(otp, user.fullName);
@@ -381,7 +396,6 @@ export const resetPassword = catchAsync(async (req, res) => {
   if (decoded.otp !== otp) {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid OTP");
   }
-
 
   user.password = password;
   user.password_reset_token = undefined;
