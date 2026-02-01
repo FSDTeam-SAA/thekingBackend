@@ -835,7 +835,11 @@ export const updateAppointmentStatus = catchAsync(async (req, res) => {
       );
     }
 
+    // ✅ Set commission: 20 for physical, 40 for video
+    appointment.adminEarning = appointment.appointmentType === "video" ? 40 : 20;
+
     appointment.paymentVerified = true;
+    appointment.paidAmount = paidAmount;
   }
 
   appointment.status = status;
@@ -1098,7 +1102,10 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
       .populate("doctor", "fullName specialty fees")
       .lean();
 
-    let totalEarnings = 0;
+    let totalEarning = 0; // Total doctor fees
+    let totalAdminEarning = 0; // Total admin commissions
+    let physicalAdminEarning = 0;
+    let videoAdminEarning = 0;
     let totalAppointments = appointments.length;
 
     const perDoctor = new Map();
@@ -1108,7 +1115,16 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
       if (!doc) continue;
 
       const fee = Number(doc.fees?.amount || 0);
-      totalEarnings += fee;
+      totalEarning += fee;
+
+      const commission = Number(appt.adminEarning || 0);
+      totalAdminEarning += commission;
+
+      if (appt.appointmentType === "video") {
+        videoAdminEarning += commission;
+      } else {
+        physicalAdminEarning += commission;
+      }
 
       const docId = String(doc._id);
       if (!perDoctor.has(docId)) {
@@ -1118,17 +1134,19 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
           specialty: doc.specialty || "",
           appointments: 0,
           earnings: 0,
+          adminCommission: 0,
         });
       }
 
       const entry = perDoctor.get(docId);
       entry.appointments += 1;
       entry.earnings += fee;
+      entry.adminCommission += commission;
     }
 
     const doctors = Array.from(perDoctor.values());
     const avgPerDoctor =
-      doctors.length > 0 ? totalEarnings / doctors.length : 0;
+      doctors.length > 0 ? totalEarning / doctors.length : 0;
 
     return sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -1137,9 +1155,12 @@ export const getEarningsOverview = catchAsync(async (req, res) => {
       data: {
         scope: "admin",
         view,
-        totalEarnings,
+        totalDoctorFees: totalEarning,
+        totalAdminEarnings: totalAdminEarning,
         totalAppointments,
         avgPerDoctor,
+        physicalAdminEarning,
+        videoAdminEarning,
         doctors,
       },
     });

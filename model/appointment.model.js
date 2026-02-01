@@ -23,7 +23,7 @@ const appointmentSchema = new Schema(
       ref: "User",
       required: true,
     },
-    
+
     // ✅ UPDATED: bookedFor field with relationship
     bookedFor: {
       type: {
@@ -32,24 +32,24 @@ const appointmentSchema = new Schema(
         required: true,
         default: "self",
       },
-      dependentId: { 
+      dependentId: {
         type: mongoose.Schema.Types.ObjectId,
         default: null
       },
-      dependentName: { 
-        type: String, 
-        trim: true, 
-        default: null 
+      dependentName: {
+        type: String,
+        trim: true,
+        default: null
       },
       relationship: { // ✅ NEW FIELD - This is the category
         type: String,
         enum: ['Son', 'Daughter', 'Father', 'Mother', 'Brother', 'Sister', 'Spouse', 'Other', 'Child'],
         default: null
       },
-      nameSnapshot: { 
-        type: String, 
-        trim: true, 
-        default: "" 
+      nameSnapshot: {
+        type: String,
+        trim: true,
+        default: ""
       },
     },
 
@@ -98,6 +98,11 @@ const appointmentSchema = new Schema(
 
     // ✅ Optional: Paid amount tracking
     paidAmount: {
+      type: Number,
+      default: 0,
+    },
+    // ✅ NEW: Admin commission tracking
+    adminEarning: {
       type: Number,
       default: 0,
     },
