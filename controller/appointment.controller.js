@@ -480,6 +480,7 @@ export const getMyAppointments = catchAsync(async (req, res) => {
       time: 1,
       status: 1,
       bookedFor: 1,
+      appointmentType: 1,
       createdAt: 1,
       symptoms: 1,
       medicalDocuments: 1,
