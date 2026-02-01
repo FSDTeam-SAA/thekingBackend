@@ -23,7 +23,7 @@ app.set("trust proxy", 1);
 const server = createServer(app);
 export const io = new Server(server, {
   cors: {
-    origin: ["https://admin.docmobidz.com"],
+    origin: ["https://admin.docmobidz.com", "http://localhost:3000"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   },
 });
@@ -31,7 +31,7 @@ export const io = new Server(server, {
 app.use(
   cors({
     credentials: true,
-    origin: ["https://admin.docmobidz.com"],
+    origin: ["https://admin.docmobidz.com", "http://localhost:3000"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   }),
 );
