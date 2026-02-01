@@ -12,12 +12,13 @@ import morgan from "morgan";
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFound from "./middleware/notFound.js";
 import { serverRunningTemplate } from "./template/serverRunning.template.js";
+import { rateLimiter } from "./middleware/rateLimiter.js";
 
 const app = express();
 
 app.use(morgan("dev"));
 
-app.set("trust proxy", true);
+app.set("trust proxy", 1);
 
 const server = createServer(app);
 export const io = new Server(server, {
@@ -38,6 +39,7 @@ app.use(
 // ✅ Increased payload limit for base64 images
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
+app.use(rateLimiter(200));
 app.use(cookieParser());
 
 app.use("/public", express.static("public"));
