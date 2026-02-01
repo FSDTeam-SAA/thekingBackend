@@ -10,7 +10,7 @@ import doctorReviewRoute from "../route/doctorReview.route.js";
 import notificationRoute from "../route/notification.route.js";
 import chatRoute from "../route/chat.route.js";
 import referralCodeRoute from "../route/referralCode.route.js";
-import appSettingRoute from "../route/appSeeting.router.js";
+import appSettingRoute from "../route/appSeeting.route.js";
 import callRoute from "../route/call.route.js"; // ✅ NEW
 
 const router = express.Router();
