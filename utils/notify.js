@@ -84,85 +84,94 @@ export const createNotification = async ({
       meta,
     });
 
-    // ✅ SEND PUSH NOTIFICATION
-    try {
-      if (admin.apps.length) {
-        const recipient = await User.findById(userId).select("fcmTokens");
+    // ✅ SEND PUSH NOTIFICATION (Non-blocking)
+    setImmediate(async () => {
+      try {
+        if (admin.apps.length) {
+          const recipient = await User.findById(userId).select("fcmTokens");
 
-        // Filter active tokens
-        const tokens = (recipient?.fcmTokens || [])
-          .filter(t => t.isActive)
-          .map(t => t.token);
+          // Filter active tokens
+          const tokens = (recipient?.fcmTokens || [])
+            .filter(t => t.isActive)
+            .map(t => t.token);
 
-        if (tokens.length > 0) {
-          // Enhanced payload with high priority
-          const message = {
-            notification: {
-              title: title,
-              body: content
-            },
-            data: {
-              type: type,
-              appointmentId: appointmentId ? String(appointmentId) : "",
-              click_action: "FLUTTER_NOTIFICATION_CLICK",
-            },
-            android: {
-              priority: 'high',
+          if (tokens.length > 0) {
+            // Enhanced payload with high priority
+            const message = {
               notification: {
-                sound: 'default',
+                title: title,
+                body: content
               },
-            },
-            apns: {
-              payload: {
-                aps: {
+              data: {
+                type: type,
+                appointmentId: appointmentId ? String(appointmentId) : "",
+                click_action: "FLUTTER_NOTIFICATION_CLICK",
+              },
+              android: {
+                priority: 'high',
+                ttl: 0, // 0 for immediate delivery
+                notification: {
                   sound: 'default',
-                  badge: 1,
-                  'content-available': 1,
-                  'mutable-content': 1,
+                  channel_id: 'docmobi_notifications', // Matches Flutter config
+                  priority: 'max',
+                  visibility: 'public',
                 },
               },
-              headers: {
-                'apns-priority': '10', // 10 for immediate delivery
+              apns: {
+                payload: {
+                  aps: {
+                    sound: 'default',
+                    badge: 1,
+                    'content-available': 1,
+                    'mutable-content': 1,
+                  },
+                },
+                headers: {
+                  'apns-priority': '10', // 10 for immediate delivery
+                  'apns-push-type': 'alert',
+                },
               },
-            },
-            tokens: tokens
-          };
-
-          // If 'video' call, consider high priority data-only message for VOIP (requires client handling)
-          // identifying by type 'incoming_call'
-          if (type === 'incoming_call') {
-            message.android = { priority: 'high', ttl: 0 };
-            message.apns = {
-              payload: {
-                aps: { contentAvailable: true } // background fetch
-              },
-              headers: {
-                "apns-priority": "10",
-                "apns-push-type": "background"
-              }
+              tokens: tokens
             };
-          }
 
-          const response = await admin.messaging().sendMulticast(message);
-          console.log(`📲 FCM Sent: ${response.successCount} success, ${response.failureCount} fail`);
+            // Switch to sendEachForMulticast (v1 recommended)
+            const response = await admin.messaging().sendEachForMulticast(message);
+            console.log(`📲 FCM Sent: ${response.successCount} success, ${response.failureCount} fail`);
 
-          // Cleanup invalid tokens if any
-          if (response.failureCount > 0) {
-            const failedTokens = [];
-            response.responses.forEach((resp, idx) => {
-              if (!resp.success) {
-                failedTokens.push(tokens[idx]);
+            // Cleanup invalid tokens if any
+            if (response.failureCount > 0) {
+              const tokensToRemove = [];
+              response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                  const error = resp.error?.code;
+                  // Remove if token is expired or invalid
+                  if (
+                    error === 'messaging/invalid-registration-token' ||
+                    error === 'messaging/registration-token-not-registered'
+                  ) {
+                    tokensToRemove.push(tokens[idx]);
+                  }
+                  console.warn(`⚠️ FCM Token Error [${tokens[idx]}]:`, error);
+                }
+              });
+
+              if (tokensToRemove.length > 0) {
+                await User.findByIdAndUpdate(userId, {
+                  $pull: {
+                    fcmTokens: { token: { $in: tokensToRemove } }
+                  }
+                });
+                console.log(`🧹 Cleaned up ${tokensToRemove.length} invalid FCM tokens for user ${userId}`);
               }
-            });
-            // Optionally remove failed tokens from DB (implementation omitted for brevity)
+            }
           }
+        } else {
+          console.log(`🔔 notification created (FCM skipped): ${title}`);
         }
-      } else {
-        console.log(`🔔 notification created (FCM skipped): ${title}`);
+      } catch (fcmError) {
+        console.error("❌ FCM Background Error:", fcmError.message);
       }
-    } catch (fcmError) {
-      console.error("❌ FCM Error:", fcmError.message);
-    }
+    });
 
     return {
       success: true,
