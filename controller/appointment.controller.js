@@ -474,8 +474,8 @@ export const getMyAppointments = catchAsync(async (req, res) => {
   // 🔹 Project fields
   pipeline.push({
     $project: {
-      doctor: { fullName: 1, role: 1, specialty: 1, avatar: 1, fees: 1 },
-      patient: { fullName: 1, role: 1, avatar: 1, dependents: 1 },
+      doctor: { _id: 1, fullName: 1, role: 1, specialty: 1, avatar: 1, fees: 1 },
+      patient: { _id: 1, fullName: 1, role: 1, avatar: 1, dependents: 1 },
       appointmentDate: 1,
       time: 1,
       status: 1,
