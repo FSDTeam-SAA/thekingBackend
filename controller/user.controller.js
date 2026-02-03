@@ -814,6 +814,8 @@ export const updateProfile = catchAsync(async (req, res) => {
       const upload = await uploadOnCloudinary(buffer, {
         folder: "docmobi/users",
         resource_type: "image",
+        type: "upload",
+        access_mode: "public",
       });
 
       user.avatar = {
@@ -821,6 +823,7 @@ export const updateProfile = catchAsync(async (req, res) => {
         url: upload.secure_url,
       };
     } catch (error) {
+      console.error("Cloudinary Upload Error:", error);
       throw new AppError(
         httpStatus.BAD_REQUEST,
         "Failed to upload profile image",
@@ -835,6 +838,8 @@ export const updateProfile = catchAsync(async (req, res) => {
     const upload = await uploadOnCloudinary(req.file.buffer, {
       folder: "docmobi/users",
       resource_type: "image",
+      type: "upload",
+      access_mode: "public",
     });
 
     user.avatar = { public_id: upload.public_id, url: upload.secure_url };
