@@ -4,7 +4,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { generateOTP } from "../utils/commonMethod.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
-import { sendEmail, otpEmailTemplate } from "../utils/sendEmail.js"; // ✅ FIXED: Added otpEmailTemplate
+import { sendEmail, otpEmailTemplate } from "../utils/sendEmail.js";
 import { User } from "../model/user.model.js";
 import { ReferralCode } from "../model/referralCode.model.js";
 import mongoose from "mongoose";
@@ -231,32 +231,35 @@ export const register = catchAsync(async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    //TODO: sent notification to all patients about new doctor registration
-    const patients = await User.find({ role: "patient" });
-    await Promise.all(
-      patients.map(async (patient) => {
-        createNotification({
-          userId: patient._id,
-          fromUserId: patient._id,
-          type: "doctor_signup",
-          title: "New Doctor Registered",
-          content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
-          meta: { doctorId: newUser._id, doctorName: newUser.fullName },
-        });
+    // FIXED: Only send notification if the new user is a DOCTOR
+    if (roleNormalized === 'doctor') {
+      //TODO: sent notification to all patients about new doctor registration
+      const patients = await User.find({ role: "patient" });
+      await Promise.all(
+        patients.map(async (patient) => {
+          createNotification({
+            userId: patient._id,
+            fromUserId: patient._id,
+            type: "doctor_signup",
+            title: "New Doctor Registered",
+            content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
+            meta: { doctorId: newUser._id, doctorName: newUser.fullName },
+          });
 
-        //sent notifaication by socket too (if online)
-        io.to(patient._id.toString()).emit("notification:newDoctor", {
-          type: "doctor_signup",
-          title: "New Doctor Registered",
-          content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
-          meta: {
-            doctorId: newUser._id,
-            doctorName: newUser.fullName,
-            specialty: newUser.specialty,
-          },
-        });
-      }),
-    );
+          //sent notifaication by socket too (if online)
+          io.to(patient._id.toString()).emit("notification:newDoctor", {
+            type: "doctor_signup",
+            title: "New Doctor Registered",
+            content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,
+            meta: {
+              doctorId: newUser._id,
+              doctorName: newUser.fullName,
+              specialty: newUser.specialty,
+            },
+          });
+        }),
+      );
+    }
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
