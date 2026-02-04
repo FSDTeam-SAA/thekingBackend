@@ -39,7 +39,7 @@ app.use(
 // ✅ Increased payload limit for base64 images
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
-app.use(rateLimiter(200));
+// app.use(rateLimiter(200));
 app.use(cookieParser());
 
 app.use("/public", express.static("public"));
