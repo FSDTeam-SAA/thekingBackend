@@ -306,3 +306,36 @@ export const getChatToken = catchAsync(async (req, res) => {
     },
   });
 });
+
+/**
+ * PATCH /chat/:chatId/read
+ * Mark all messages in a chat as read
+ */
+export const markChatAsRead = catchAsync(async (req, res) => {
+  const { chatId } = req.params;
+  const meId = req.user._id;
+
+  const chat = await Chat.findById(chatId);
+  if (!chat) throw new AppError(httpStatus.NOT_FOUND, "Chat not found");
+  if (!chat.participants.some((p) => String(p) === String(meId))) {
+    throw new AppError(httpStatus.FORBIDDEN, "Not part of this chat");
+  }
+
+  // Mark all messages as seen
+  await Message.updateMany(
+    {
+      chatId,
+      sender: { $ne: meId },
+      seenBy: { $ne: meId },
+    },
+    {
+      $addToSet: { seenBy: meId },
+    }
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Chat marked as read",
+  });
+});

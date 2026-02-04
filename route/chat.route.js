@@ -7,12 +7,16 @@ import {
   getChatMessages,
   sendMessage,
   getChatToken,
+  markChatAsRead,
 } from "../controller/chat.controller.js";
 
 const router = express.Router();
 
 // Get Agora Chat Token
 router.get("/token", protect, getChatToken);
+
+// Mark chat as read
+router.patch("/:chatId/read", protect, markChatAsRead);
 
 // create / fetch a 1-1 chat
 router.post("/", protect, createOrGetChat);
