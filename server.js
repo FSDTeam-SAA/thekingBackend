@@ -111,6 +111,46 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ✅ NEW: Real-time Chat Presence (Online/Offline in Chat)
+  socket.on("chat:join", ({ chatId, userId }) => {
+    if (!chatId || !userId) return;
+
+    const roomName = `conversation_${chatId}`;
+    socket.join(roomName);
+
+    // Store joined rooms for disconnect handling
+    if (!socket.chatRooms) socket.chatRooms = new Set();
+    socket.chatRooms.add(roomName);
+
+    // Notify others in this chat that I am online
+    socket.to(roomName).emit("user:online", { userId, chatId });
+
+    console.log(`🟢 User ${userId} joined chat ${chatId} (Online)`);
+
+    // Optional: Send list of online users in this room to the joiner
+    const clients = io.sockets.adapter.rooms.get(roomName);
+    if (clients) {
+      // This part is tricky without mapping socketId -> userId globally, 
+      // but for 1-1 chat, if someone else is there, they are online.
+      if (clients.size > 1) {
+        socket.emit("user:online", { count: clients.size });
+      }
+    }
+  });
+
+  socket.on("chat:leave", ({ chatId, userId }) => {
+    if (!chatId || !userId) return;
+
+    const roomName = `conversation_${chatId}`;
+    socket.leave(roomName);
+
+    if (socket.chatRooms) socket.chatRooms.delete(roomName);
+
+    // Notify others
+    socket.to(roomName).emit("user:offline", { userId, chatId });
+    console.log(`🔴 User ${userId} left chat ${chatId} (Offline)`);
+  });
+
   socket.on("joinAlerts", () => {
     socket.join("alerts");
     console.log(`🔔 Client ${socket.id} joined alerts room`);
@@ -190,6 +230,21 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected:", socket.id);
+
+    // ✅ Notify all joined chat rooms that user is offline
+    if (socket.chatRooms) {
+      // We need userId for this. It was passed in handshake query, or we can store it on socket
+      const userId = socket.handshake.query.userId;
+      if (userId) {
+        socket.chatRooms.forEach(roomName => {
+          // roomName is conversation_CHATID
+          // extract chatID? Or just emit generic offline
+          const chatId = roomName.replace('conversation_', '');
+          socket.to(roomName).emit("user:offline", { userId, chatId });
+          console.log(`🔴 User ${userId} disconnected from chat ${chatId}`);
+        });
+      }
+    }
   });
 });
 

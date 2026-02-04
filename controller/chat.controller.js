@@ -7,6 +7,7 @@ import { Message } from "../model/message.model.js";
 import { User } from "../model/user.model.js";
 import { uploadOnCloudinary } from "../utils/commonMethod.js";
 import { io } from "../server.js";
+import { sendFCMNotificationToUsers } from "../utils/fcm.js";
 
 // helper: ensure chat is doctor<->doctor or doctor<->patient
 const validateChatRoles = (u1, u2) => {
@@ -272,10 +273,45 @@ export const sendMessage = catchAsync(async (req, res) => {
 
   // Socket notification to all participants
   for (const p of chat.participants) {
+    if (String(p._id) !== String(meId)) {
+      // Don't send socket event to self if not needed, but usually we do for multi-device sync
+      // Actually, existing code sent to all, that's fine.
+    }
     io.to(`chat_${p._id}`).emit("message:new", {
       chatId,
       message: populatedMsg,
     });
+  }
+
+  // ✅ Send FCM Push Notification to recipients (exclude sender)
+  const recipientIds = chat.participants
+    .map((p) => String(p._id))
+    .filter((id) => id !== String(meId));
+
+  if (recipientIds.length > 0) {
+    const senderName = populatedMsg.sender.fullName;
+    const notificationBody =
+      finalContentType === "text"
+        ? (content.length > 100 ? content.substring(0, 97) + "..." : content)
+        : `Sent a ${finalContentType}`;
+
+    // Fire and forget - don't await blocking response
+    sendFCMNotificationToUsers(
+      recipientIds,
+      {
+        title: senderName,
+        body: notificationBody,
+      },
+      {
+        type: "chat",
+        chatId: chatId,
+        senderId: String(meId),
+        clickAction: "FLUTTER_NOTIFICATION_CLICK",
+      },
+      User
+    ).catch((err) =>
+      console.error("❌ Failed to send chat notification:", err)
+    );
   }
 
   sendResponse(res, {
