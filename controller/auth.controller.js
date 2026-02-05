@@ -145,6 +145,7 @@ export const register = catchAsync(async (req, res) => {
         if (!referralData) {
           throw new AppError(httpStatus.BAD_REQUEST, "Invalid referral code");
         }
+        console.log("referralData", referralData);
 
         referral = referralData;
       }
@@ -180,6 +181,8 @@ export const register = catchAsync(async (req, res) => {
     const exp = Number(experienceYears);
     const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
+    console.log("Starting user creation...",referral,"asdihksaddasdfiusdkjhlksdh",referral._id);
+
     // create user
     const [newUser] = await User.create(
       [
@@ -194,8 +197,8 @@ export const register = catchAsync(async (req, res) => {
           medicalLicenseNumber:
             roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
           verificationInfo: { token: "" },
-          refferalCode:
-            referral && refferalCode === "patient" ? undefined : refferalCode,
+          referralCode:
+            referral && roleNormalized === "patient" ? undefined : referral._id,
           approvalStatus: roleNormalized === "doctor" ? "pending" : "approved",
         },
       ],

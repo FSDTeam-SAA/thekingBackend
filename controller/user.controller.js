@@ -415,6 +415,7 @@ export const getUsersByRole = catchAsync(async (req, res) => {
   let users = await User.find(matchFilter)
     .select("-password -refreshToken -verificationInfo -password_reset_token")
     .sort(sort)
+    .populate("referralCode", "code description") // Populate referralCode
     .skip(skip)
     .limit(pageLimit)
     .lean();
