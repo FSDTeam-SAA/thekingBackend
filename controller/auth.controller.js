@@ -58,10 +58,12 @@ export const verifyOTP = catchAsync(async (req, res) => {
 });
 
 export const register = catchAsync(async (req, res) => {
+  console.log('🔵 [REGISTER] Starting registration process');
   const session = await mongoose.startSession();
 
   try {
     session.startTransaction();
+    console.log('🔵 [REGISTER] Transaction started');
 
     const {
       phone,
@@ -75,6 +77,8 @@ export const register = catchAsync(async (req, res) => {
       medicalLicenseNumber,
       refferalCode,
     } = req.body;
+
+    console.log('🔵 [REGISTER] Request body:', { fullName, email, role, specialty });
 
     // basic validation
     if (!email || !password || !fullName) {
@@ -105,16 +109,20 @@ export const register = catchAsync(async (req, res) => {
     }
 
     //fetch referral enable status
+    console.log('🔵 [REGISTER] Fetching app settings...');
     const settings = await AppSetting.findOne().select(
       "referralSystemEnabled _id",
     );
+    console.log('🔵 [REGISTER] Settings fetched:', settings);
 
     if (!settings) {
+      console.log('❌ [REGISTER] No settings found in database');
       throw new AppError(
         httpStatus.BAD_REQUEST,
         "App setting not found for referral enable status",
       );
     }
+    console.log('🔵 [REGISTER] Referral system enabled:', settings.referralSystemEnabled);
 
     if (roleNormalized === "patient" && refferalCode) {
       throw new AppError(
@@ -181,6 +189,7 @@ export const register = catchAsync(async (req, res) => {
     const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
     // create user
+    console.log('🔵 [REGISTER] Creating user with role:', roleNormalized);
     const [newUser] = await User.create(
       [
         {
@@ -201,7 +210,9 @@ export const register = catchAsync(async (req, res) => {
       ],
       { session },
     );
+    console.log('🔵 [REGISTER] User created:', newUser ? { id: newUser._id, email: newUser.email } : 'NULL');
     if (!newUser) {
+      console.log('❌ [REGISTER] User creation returned null');
       throw new AppError(httpStatus.BAD_REQUEST, "User registration failed");
     }
 
@@ -228,11 +239,15 @@ export const register = catchAsync(async (req, res) => {
     }
 
     // commit transaction
+    console.log('🔵 [REGISTER] Committing transaction...');
     await session.commitTransaction();
     session.endSession();
+    console.log('🔵 [REGISTER] Transaction committed successfully');
 
     // FIXED: Only send notification if the new user is a DOCTOR
+    console.log('🔵 [REGISTER] Checking if notifications needed for role:', roleNormalized);
     if (roleNormalized === 'doctor') {
+      console.log('🔵 [REGISTER] Sending notifications to patients about new doctor');
       //TODO: sent notification to all patients about new doctor registration
       const patients = await User.find({ role: "patient" });
       await Promise.all(
@@ -259,8 +274,11 @@ export const register = catchAsync(async (req, res) => {
           });
         }),
       );
+    } else {
+      console.log('🔵 [REGISTER] Skipping notifications (user is not a doctor)');
     }
 
+    console.log('✅ [REGISTER] Registration completed successfully');
     sendResponse(res, {
       statusCode: httpStatus.OK,
       success: true,
@@ -269,10 +287,13 @@ export const register = catchAsync(async (req, res) => {
     });
   } catch (error) {
     // rollback on error
+    console.log('❌ [REGISTER] Error occurred:', error.message);
+    console.log('❌ [REGISTER] Error stack:', error.stack);
     // await session.abortTransaction();
     session.endSession();
     throw error;
   }
+  console.log('🔵 [REGISTER] Function completed');
 });
 
 export const login = catchAsync(async (req, res) => {
