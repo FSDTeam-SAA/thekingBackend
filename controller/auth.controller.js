@@ -205,7 +205,7 @@ export const register = catchAsync(async (req, res) => {
             roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
           verificationInfo: { token: "" },
           referralCode:
-            referral && roleNormalized === "doctor" ? referral._id : undefined,
+            referral && roleNormalized === "doctor" ? referral._id : null,
           approvalStatus: roleNormalized === "doctor" ? "pending" : "approved",
         },
       ],
