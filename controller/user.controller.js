@@ -420,6 +420,14 @@ export const getUsersByRole = catchAsync(async (req, res) => {
     .limit(pageLimit)
     .lean();
 
+  // ✅ Clean up null referralCode to prevent frontend errors
+  users = users.map(user => {
+    if (user.referralCode === null) {
+      delete user.referralCode;
+    }
+    return user;
+  });
+
   // Non-doctor response
   if (role !== "doctor") {
     const totalPages = Math.ceil(total / pageLimit);
@@ -475,13 +483,20 @@ export const getUsersByRole = catchAsync(async (req, res) => {
   }
 
   // Attach rating summary
-  users = users.map((u) => ({
-    ...u,
-    ratingSummary: statMap.get(String(u._id)) || {
-      avgRating: 0,
-      totalReviews: 0,
-    },
-  }));
+  users = users.map((u) => {
+    // ✅ Clean up null referralCode
+    if (u.referralCode === null) {
+      delete u.referralCode;
+    }
+
+    return {
+      ...u,
+      ratingSummary: statMap.get(String(u._id)) || {
+        avgRating: 0,
+        totalReviews: 0,
+      },
+    };
+  });
 
   // Pagination meta
   const totalPages = Math.ceil(total / pageLimit);
