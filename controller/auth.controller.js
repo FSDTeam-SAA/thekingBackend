@@ -189,8 +189,6 @@ export const register = catchAsync(async (req, res) => {
     const exp = Number(experienceYears);
     const expSafe = Number.isFinite(exp) && exp >= 0 ? exp : 0;
 
-    console.log("Starting user creation...",referral,"asdihksaddasdfiusdkjhlksdh",referral._id);
-
     // create user
     console.log('🔵 [REGISTER] Creating user with role:', roleNormalized);
     const [newUser] = await User.create(
@@ -207,7 +205,7 @@ export const register = catchAsync(async (req, res) => {
             roleNormalized === "doctor" ? medicalLicenseNumber : undefined,
           verificationInfo: { token: "" },
           referralCode:
-            referral && roleNormalized === "patient" ? undefined : referral._id,
+            referral && roleNormalized === "doctor" ? referral._id : undefined,
           approvalStatus: roleNormalized === "doctor" ? "pending" : "approved",
         },
       ],
