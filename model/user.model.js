@@ -186,13 +186,12 @@ const userSchema = new Schema(
 
     country: { type: String, default: "" },
 
-    referralCode: [
+    referralCode: 
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "ReferralCode",
         default: null,
       },
-    ],
 
     dependents: { type: [dependentSchema], default: [] },
 
