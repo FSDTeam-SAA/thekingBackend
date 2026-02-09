@@ -36,7 +36,7 @@ app.use(
   }),
 );
 
-// ✅ Increased payload limit for base64 images
+// Increased payload limit for base64 images
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 // app.use(rateLimiter(200));
@@ -44,7 +44,7 @@ app.use(cookieParser());
 
 app.use("/public", express.static("public"));
 
-// // ✅ Request logger middleware (optional - for debugging)
+// // Request logger middleware (optional - for debugging)
 // app.use((req, res, next) => {
 //   console.log(`📥 ${req.method} ${req.path}`);
 //   next();

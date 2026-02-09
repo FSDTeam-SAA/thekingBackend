@@ -296,7 +296,9 @@ export const sendMessage = catchAsync(async (req, res) => {
         : `Sent a ${finalContentType}`;
 
     // Fire and forget - don't await blocking response
-    sendFCMNotificationToUsers(
+
+
+        sendFCMNotificationToUsers(
       recipientIds,
       {
         title: senderName,
@@ -304,14 +306,37 @@ export const sendMessage = catchAsync(async (req, res) => {
       },
       {
         type: "chat",
-        chatId: chatId,
-        senderId: String(meId),
+        chatId: String(chatId),        // String
+        otherUserId: String(meId),     // Sender ID
+        userName: senderName,          // Chat screen
+        userAvatar: populatedMsg.sender.avatar?.url || "", 
         clickAction: "FLUTTER_NOTIFICATION_CLICK",
       },
       User
     ).catch((err) =>
       console.error("❌ Failed to send chat notification:", err)
     );
+
+
+
+    // sendFCMNotificationToUsers(
+    //   recipientIds,
+    //   {
+    //     title: senderName,
+    //     body: notificationBody,
+    //   },
+    //   {
+    //     type: "chat",
+    //     chatId: chatId,
+    //     senderId: String(meId),
+    //     clickAction: "FLUTTER_NOTIFICATION_CLICK",
+    //   },
+    //   User
+    // ).catch((err) =>
+    //   console.error("❌ Failed to send chat notification:", err)
+    // );
+
+
   }
 
   sendResponse(res, {
