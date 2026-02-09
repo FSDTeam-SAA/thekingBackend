@@ -58,18 +58,28 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
     }
 
     const message = {
+      // ⚠️ IMPORTANT: Sending 'notification' block often causes issues
+      // with custom handling on mobile. We comment it out to rely on 'data'
+      // messages which your Flutter 'flutter_local_notifications' handles perfectly.
+      /*
       notification: {
         title: notification.title || 'Docmobi Notification',
         body: notification.body || 'You have a new notification',
       },
+      */
+      
       data: {
         type: data.type || 'general',
-        click_action: data.clickAction || '',
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        title: notification.title || 'Docmobi Notification', // Pass title in data
+        body: notification.body || 'You have a new notification', // Pass body in data
         ...data,
       },
       android: {
         priority: 'high',
         notification: {
+          channelId: 'docmobi_chat_notifications_v3', // ✅ REQUIRED: Matches Frontend
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
           sound: 'default',
           ...(notification.android && notification.android),
         },
@@ -77,15 +87,19 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
       apns: {
         payload: {
           aps: {
+            alert: {
+               title: notification.title || 'Docmobi Notification',
+               body: notification.body || 'You have a new notification',
+            },
             sound: 'default',
             badge: 1,
-            'content-available': 1,
+            'content-available': 1, // ✅ Critical for background wake-up
             'mutable-content': 1,
             ...(notification.ios && notification.ios),
           },
         },
         headers: {
-          'apns-priority': '10', // 10 for immediate delivery, 5 for power-optimized
+          'apns-priority': '10', // 10 for immediate delivery
         },
       },
       tokens: tokens,
