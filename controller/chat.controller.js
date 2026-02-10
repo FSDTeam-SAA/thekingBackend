@@ -27,7 +27,6 @@ const validateChatRoles = (u1, u2) => {
  * POST /chat
  * body: { userId: "<otherUserId>" }
  * return existing 1-1 chat or create a new one.
- * ✅ FIXED: isGroupChat instead of isGroup
  */
 export const createOrGetChat = catchAsync(async (req, res) => {
   const meId = req.user._id;
@@ -49,10 +48,9 @@ export const createOrGetChat = catchAsync(async (req, res) => {
 
   validateChatRoles(me, other);
 
-  // ✅ FIXED: Check with isGroupChat: false (matching model field)
   let chat = await Chat.findOne({
     participants: { $all: [meId, userId], $size: 2 },
-    isGroupChat: false, // ✅ Changed from isGroup to isGroupChat
+    isGroupChat: false,
   })
     .populate("participants", "fullName avatar role specialty experienceYears bio degrees")
     .populate({
@@ -61,10 +59,9 @@ export const createOrGetChat = catchAsync(async (req, res) => {
     });
 
   if (!chat) {
-
     chat = await Chat.create({
       participants: [meId, userId],
-      isGroupChat: false, // ✅ Changed from isGroup to isGroupChat
+      isGroupChat: false,
     });
 
     // Re-fetch with populated fields
@@ -87,14 +84,13 @@ export const createOrGetChat = catchAsync(async (req, res) => {
 /**
  * GET /chat
  * Get all chats for current user with unread count
- * ✅ FIXED: Better sorting and deduplication
  */
 export const getMyChats = catchAsync(async (req, res) => {
   const meId = req.user._id;
 
   const chats = await Chat.find({
     participants: meId,
-    isGroupChat: false, // ✅ Only get 1-1 chats
+    isGroupChat: false,
   })
     .sort({ updatedAt: -1 })
     .populate("participants", "fullName avatar role specialty experienceYears bio degrees")
@@ -104,7 +100,7 @@ export const getMyChats = catchAsync(async (req, res) => {
     })
     .lean();
 
-  // ✅ Remove any duplicate chats (same participants)
+  // Remove any duplicate chats (same participants)
   const uniqueChats = [];
   const seenPairIds = new Set();
 
@@ -167,6 +163,12 @@ export const getChatMessages = catchAsync(async (req, res) => {
     Message.countDocuments({ chatId }),
   ]);
 
+  // ✅ Add isRead field to each message
+  const messagesWithReadStatus = messages.map(msg => ({
+    ...msg,
+    isRead: msg.seenBy.some(id => String(id) === String(meId)),
+  }));
+
   // Mark messages as seen
   await Message.updateMany(
     {
@@ -184,7 +186,7 @@ export const getChatMessages = catchAsync(async (req, res) => {
     success: true,
     message: "Messages fetched",
     data: {
-      items: messages.reverse(),
+      items: messagesWithReadStatus.reverse(),
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -199,7 +201,7 @@ export const getChatMessages = catchAsync(async (req, res) => {
  * form-data:
  *  - content (optional if files)
  *  - files[] (images/videos/etc)
- * ✅ FIXED: Properly handle file attachments with correct field name
+ * ✅ FIXED: Proper FCM notification with notification object for terminated apps
  */
 export const sendMessage = catchAsync(async (req, res) => {
   const { chatId } = req.params;
@@ -207,7 +209,7 @@ export const sendMessage = catchAsync(async (req, res) => {
 
   const chat = await Chat.findById(chatId).populate(
     "participants",
-    "_id fullName"
+    "_id fullName avatar fcmToken" // ✅ Added fcmToken to populate
   );
   if (!chat) throw new AppError(httpStatus.NOT_FOUND, "Chat not found");
   if (!chat.participants.some((p) => String(p._id) === String(meId))) {
@@ -217,9 +219,9 @@ export const sendMessage = catchAsync(async (req, res) => {
   const { content, contentType = "text" } = req.body;
 
   const files = req.files?.files || req.files || [];
-  const fileUrls = []; // ✅ Changed from attachments to fileUrls
+  const fileUrls = [];
 
-  // ✅ Upload files to cloudinary
+  // Upload files to cloudinary
   for (const file of files) {
     try {
       const up = await uploadOnCloudinary(file.buffer, {
@@ -230,11 +232,11 @@ export const sendMessage = catchAsync(async (req, res) => {
 
       fileUrls.push({
         name: file.originalname,
-        url: up.secure_url,
         content: file.mimetype,
+        url: up.secure_url,
       });
     } catch (error) {
-      new AppError(httpStatus.INTERNAL_SERVER_ERROR, "File upload failed");
+      throw new AppError(httpStatus.INTERNAL_SERVER_ERROR, "File upload failed");
     }
   }
 
@@ -242,7 +244,7 @@ export const sendMessage = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Nothing to send");
   }
 
-  // ✅ Determine content type based on files
+  // Determine content type based on files
   let finalContentType = contentType;
   if (fileUrls.length > 0) {
     const firstFile = fileUrls[0];
@@ -260,7 +262,7 @@ export const sendMessage = catchAsync(async (req, res) => {
     sender: meId,
     content: content || '',
     contentType: finalContentType,
-    fileUrl: fileUrls, // ✅ Changed from attachments to fileUrl
+    fileUrl: fileUrls,
     seenBy: [meId],
   });
 
@@ -273,70 +275,58 @@ export const sendMessage = catchAsync(async (req, res) => {
 
   // Socket notification to all participants
   for (const p of chat.participants) {
-    if (String(p._id) !== String(meId)) {
-      // Don't send socket event to self if not needed, but usually we do for multi-device sync
-      // Actually, existing code sent to all, that's fine.
-    }
     io.to(`chat_${p._id}`).emit("message:new", {
       chatId,
       message: populatedMsg,
     });
   }
 
-  // ✅ Send FCM Push Notification to recipients (exclude sender)
-  const recipientIds = chat.participants
-    .map((p) => String(p._id))
-    .filter((id) => id !== String(meId));
+  // ✅ FIXED: Send FCM Push Notification with proper format for terminated apps
+  const sender = chat.participants.find(p => String(p._id) === String(meId));
+  const recipients = chat.participants.filter(p => String(p._id) !== String(meId));
 
-  if (recipientIds.length > 0) {
-    const senderName = populatedMsg.sender.fullName;
-    const notificationBody =
-      finalContentType === "text"
-        ? (content.length > 100 ? content.substring(0, 97) + "..." : content)
-        : `Sent a ${finalContentType}`;
+  if (recipients.length > 0 && sender) {
+    const senderName = sender.fullName || "Someone";
+    const senderAvatar = sender.avatar?.url || "";
+    
+    // Create notification body based on content type
+    let notificationBody;
+    if (finalContentType === "text") {
+      notificationBody = content.length > 100 ? content.substring(0, 97) + "..." : content;
+    } else if (finalContentType === "image") {
+      notificationBody = "📷 Sent an image";
+    } else if (finalContentType === "video") {
+      notificationBody = "🎥 Sent a video";
+    } else {
+      notificationBody = `📎 Sent a ${finalContentType}`;
+    }
 
-    // Fire and forget - don't await blocking response
+    // Get recipient IDs
+    const recipientIds = recipients.map(p => String(p._id));
 
-
-        sendFCMNotificationToUsers(
+    // ✅ CRITICAL: Send with BOTH notification and data objects
+    sendFCMNotificationToUsers(
       recipientIds,
       {
-        title: senderName,
+        title: `New message from ${senderName}`,  // ✅ Added "New message from"
         body: notificationBody,
+        sound: "default",  // ✅ Added sound
+        badge: "1",        // ✅ Added badge
       },
       {
         type: "chat",
-        chatId: String(chatId),        // String
-        otherUserId: String(meId),     // Sender ID
-        userName: senderName,          // Chat screen
-        userAvatar: populatedMsg.sender.avatar?.url || "", 
+        chatId: String(chatId),
+        otherUserId: String(meId),
+        userName: senderName,
+        userAvatar: senderAvatar,
+        content: content || notificationBody,
+        contentType: finalContentType,
         clickAction: "FLUTTER_NOTIFICATION_CLICK",
       },
       User
     ).catch((err) =>
       console.error("❌ Failed to send chat notification:", err)
     );
-
-
-
-    // sendFCMNotificationToUsers(
-    //   recipientIds,
-    //   {
-    //     title: senderName,
-    //     body: notificationBody,
-    //   },
-    //   {
-    //     type: "chat",
-    //     chatId: chatId,
-    //     senderId: String(meId),
-    //     clickAction: "FLUTTER_NOTIFICATION_CLICK",
-    //   },
-    //   User
-    // ).catch((err) =>
-    //   console.error("❌ Failed to send chat notification:", err)
-    // );
-
-
   }
 
   sendResponse(res, {
@@ -371,6 +361,7 @@ export const getChatToken = catchAsync(async (req, res) => {
 /**
  * PATCH /chat/:chatId/read
  * Mark all messages in a chat as read
+ * ✅ FIXED: Return unreadCount in response
  */
 export const markChatAsRead = catchAsync(async (req, res) => {
   const { chatId } = req.params;
@@ -383,7 +374,7 @@ export const markChatAsRead = catchAsync(async (req, res) => {
   }
 
   // Mark all messages as seen
-  await Message.updateMany(
+  const updateResult = await Message.updateMany(
     {
       chatId,
       sender: { $ne: meId },
@@ -394,9 +385,24 @@ export const markChatAsRead = catchAsync(async (req, res) => {
     }
   );
 
+  // ✅ FIXED: Calculate and return unread count (should be 0 now)
+  const unreadCount = await Message.countDocuments({
+    chatId,
+    sender: { $ne: meId },
+    seenBy: { $ne: meId },
+  });
+
+  console.log(`✅ Marked ${updateResult.modifiedCount} messages as read in chat ${chatId}`);
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Chat marked as read",
+    data: {
+      chatId: String(chatId),
+      unreadCount,  // ✅ Should be 0
+      markedCount: updateResult.modifiedCount,
+    },
   });
 });
+
