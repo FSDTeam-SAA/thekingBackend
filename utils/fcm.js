@@ -25,10 +25,14 @@ export const initializeFirebase = () => {
         projectId: process.env.FIREBASE_PROJECT_ID,
         databaseURL: process.env.FIREBASE_DATABASE_URL,
       });
+
+      console.log('✅ Firebase Admin SDK initialized');
     } else {
       firebaseApp = admin.apps[0];
+      console.log('✅ Firebase Admin SDK already initialized');
     }
   } catch (error) {
+    console.error('❌ Firebase initialization error:', error);
     throw error;
   }
 };
@@ -64,7 +68,7 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
     }
 
     const message = {
-      // ✅ CRITICAL FIX: UNCOMMENTED notification block - REQUIRED for terminated apps!
+      // ✅ Notification block for chat messages
       notification: {
         title: notification.title || 'Docmobi Notification',
         body: notification.body || 'You have a new notification',
@@ -76,18 +80,20 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
         title: notification.title || 'Docmobi Notification',
         body: notification.body || 'You have a new notification',
-        ...stringifiedData,  // ✅ All values are strings now
+        ...stringifiedData,
       },
+
       android: {
         priority: 'high',
         notification: {
-          channelId: 'docmobi_chat_notifications_v3', // ✅ Matches Flutter channel
+          channelId: 'docmobi_chat_notifications_v3',
           clickAction: 'FLUTTER_NOTIFICATION_CLICK',
           sound: 'default',
           priority: 'high',
           ...(notification.android && notification.android),
         },
       },
+
       apns: {
         payload: {
           aps: {
@@ -97,15 +103,16 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
             },
             sound: 'default',
             badge: 1,
-            'content-available': 1, // ✅ Critical for background wake-up
+            'content-available': 1,
             'mutable-content': 1,
             ...(notification.ios && notification.ios),
           },
         },
         headers: {
-          'apns-priority': '10', // 10 for immediate delivery
+          'apns-priority': '10',
         },
       },
+
       tokens: tokens,
     };
 
@@ -153,7 +160,7 @@ export const sendSingleFCMNotification = async (token, notification, data = {}) 
  * @param {Array<string>} userIds - Array of user IDs
  * @param {Object} notification - Notification payload
  * @param {Object} data - Custom data payload
- * @param {Object} User model - User mongoose model
+ * @param {Object} UserModel - User mongoose model
  * @returns {Promise<Object>} - Result of notification sending
  */
 export const sendFCMNotificationToUsers = async (userIds, notification, data = {}, UserModel) => {
@@ -346,10 +353,10 @@ export const validateFCMToken = (token) => {
   return token.length >= 100 && token.length <= 200;
 };
 
-
 /**
  * 📞 Send Call Notification (Special high-priority notification for incoming calls)
- * This function sends a special notification that can wake up the device and show full-screen call UI
+ * This function sends a DATA-ONLY notification for Android (to trigger background handler)
+ * and a full notification for iOS
  * @param {Array<string>} tokens - Array of FCM tokens
  * @param {Object} callData - Call information
  * @param {string} callData.callerId - Caller's user ID
@@ -368,32 +375,48 @@ export const sendCallNotification = async (tokens, callData) => {
 
     const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
 
+    console.log('📞 Sending call notification:', {
+      callType,
+      callerName,
+      chatId,
+      tokensCount: tokens.length,
+    });
+
     const message = {
-      // ✅ DATA-ONLY for background handler to work properly
+      // ❌ NO notification block for Android
+      // This ensures the background handler runs
+
+      // ✅ Data-only payload
       data: {
         type: 'incoming_call',
-        callType: callType,
-        callerId: callerId,
-        callerName: callerName,
-        callerAvatar: callerAvatar,
-        chatId: chatId,
+        callType: String(callType),
+        callerId: String(callerId),
+        callerName: String(callerName),
+        callerAvatar: String(callerAvatar),
+        chatId: String(chatId),
         isVideo: callType === 'video' ? 'true' : 'false',
         timestamp: new Date().toISOString(),
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        // ✅ Title and body in data for Flutter to use
+        title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
+        body: `${callerName} is calling you...`,
       },
+
       android: {
         priority: 'high',
         ttl: 30000, // 30 seconds
-        // ✅ NO notification block - let Flutter handle it
+        // ❌ NO notification block - let Flutter background handler create it
       },
+
       apns: {
         payload: {
           aps: {
+            // ✅ iOS needs alert block
             alert: {
-              title: `${callType === 'video' ? '📹' : '📞'} Incoming Call`,
+              title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
               body: `${callerName} is calling you...`,
             },
-            sound: 'default', // ✅ Default iOS sound
+            sound: 'default',
             'content-available': 1,
             'mutable-content': 1,
             category: 'INCOMING_CALL',
@@ -402,13 +425,13 @@ export const sendCallNotification = async (tokens, callData) => {
         },
         headers: {
           'apns-priority': '10',
-          'apns-push-type': 'alert',
         },
       },
+
       tokens: tokens,
     };
 
-    const response = await admin.messaging().sendMulticast(message);
+    const response = await admin.messaging().sendEachForMulticast(message);
 
     console.log(`📞 Call notification sent to ${tokens.length} devices:`, {
       successCount: response.successCount,
@@ -416,6 +439,15 @@ export const sendCallNotification = async (tokens, callData) => {
       callType: callType,
       caller: callerName,
     });
+
+    // Log failures
+    if (response.failureCount > 0) {
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          console.error(`❌ Failed to send call notification to token ${idx}:`, resp.error?.message);
+        }
+      });
+    }
 
     return {
       success: true,
