@@ -5,6 +5,7 @@ import sendResponse from "../utils/sendResponse.js";
 import { Chat } from "../model/chat.model.js";
 import { User } from "../model/user.model.js";
 import { io } from "../server.js";
+import { sendFCMNotificationToUsers } from "../utils/fcm.js";
 
 /**
  * Initiate a call (audio or video)
@@ -62,7 +63,7 @@ export const initiateCall = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Receiver not found");
   }
 
-  // Emit socket event to receiver
+  // Emit socket event to receiver (for when app is OPEN)
   io.to(`chat_${receiverId}`).emit("call:incoming", {
     fromUserId: String(callerId),
     chatId: String(actualChatId),
@@ -70,6 +71,32 @@ export const initiateCall = catchAsync(async (req, res) => {
     callerName: req.user.fullName,
     callerAvatar: req.user.avatar?.url,
   });
+
+  // 📱 ✅ Send FCM notification to receiver (for when app is CLOSED/BACKGROUND)
+  try {
+    await sendFCMNotificationToUsers(
+      [receiverId],
+      {
+        title: `${callType === "video" ? "📹" : "📞"} Incoming ${callType === "video" ? "Video" : "Audio"} Call`,
+        body: `${req.user.fullName} is calling you...`,
+      },
+      {
+        type: "incoming_call",
+        callType: callType, // 'audio' or 'video'
+        chatId: String(actualChatId),
+        callerId: String(callerId),
+        callerName: req.user.fullName,
+        callerAvatar: req.user.avatar?.url || "",
+        isVideo: callType === "video" ? "true" : "false", // String for data payload
+        timestamp: new Date().toISOString(),
+      },
+      User
+    );
+    console.log(`✅ Call FCM notification sent to receiver: ${receiverId}`);
+  } catch (fcmError) {
+    console.error("❌ Failed to send FCM notification for call:", fcmError);
+    // Don't throw error, call can continue via socket
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

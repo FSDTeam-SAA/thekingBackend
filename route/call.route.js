@@ -7,6 +7,6 @@ const router = express.Router();
 
 router.post("/initiate", protect, initiateCall);
 router.post("/end", protect, endCall);
-router.get("/token", protect, getToken); // ✅ New Token Route
+router.get("/token", protect, getToken);
 
 export default router;

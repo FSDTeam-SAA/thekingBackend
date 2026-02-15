@@ -67,7 +67,7 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
         body: notification.body || 'You have a new notification',
       },
       */
-      
+
       data: {
         type: data.type || 'general',
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
@@ -88,8 +88,8 @@ export const sendFCMNotification = async (tokens, notification, data = {}) => {
         payload: {
           aps: {
             alert: {
-               title: notification.title || 'Docmobi Notification',
-               body: notification.body || 'You have a new notification',
+              title: notification.title || 'Docmobi Notification',
+              body: notification.body || 'You have a new notification',
             },
             sound: 'default',
             badge: 1,
@@ -324,4 +324,114 @@ export const validateFCMToken = (token) => {
 
   // Basic validation - FCM tokens are typically 100-200 characters
   return token.length >= 100 && token.length <= 200;
+};
+
+/**
+ * 📞 Send Call Notification (Special high-priority notification for incoming calls)
+ * This function sends a special notification that can wake up the device and show full-screen call UI
+ * @param {Array<string>} tokens - Array of FCM tokens
+ * @param {Object} callData - Call information
+ * @param {string} callData.callerId - Caller's user ID
+ * @param {string} callData.callerName - Caller's name
+ * @param {string} callData.callerAvatar - Caller's avatar URL
+ * @param {string} callData.chatId - Chat/Channel ID
+ * @param {string} callData.callType - 'audio' or 'video'
+ * @returns {Promise<Object>} - Result of notification sending
+ */
+export const sendCallNotification = async (tokens, callData) => {
+  try {
+    if (!tokens || !tokens.length) {
+      console.log('⚠️ No tokens provided for call notification');
+      return { success: false, message: 'No tokens provided' };
+    }
+
+    const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
+
+    const message = {
+      // ⚠️ Don't use 'notification' block for calls - use data-only for custom handling
+      data: {
+        type: 'incoming_call',
+        callType: callType, // 'audio' or 'video'
+        callerId: callerId,
+        callerName: callerName,
+        callerAvatar: callerAvatar,
+        chatId: chatId,
+        isVideo: callType === 'video' ? 'true' : 'false',
+        timestamp: new Date().toISOString(),
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        // 🎯 For full-screen intent (screen locked)
+        fullScreenIntent: 'true',
+        // For notification display in Flutter
+        title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType === 'video' ? 'Video' : 'Audio'} Call`,
+        body: `${callerName} is calling you...`,
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'docmobi_call_notifications', // ✅ IMPORTANT: Create this channel in Flutter
+          priority: 'max', // Maximum priority for calls
+          visibility: 'public', // Show on lock screen
+          sound: 'default',
+          tag: `call_${chatId}`, // Prevent duplicate notifications
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          // ✅ CRITICAL: Show full-screen notification for incoming calls
+          defaultVibrateTimings: false,
+          vibrateTimingsMillis: [0, 1000, 500, 1000], // Custom vibration pattern
+          // 🔴🟢 Action buttons for notification
+          actions: [
+            {
+              title: '✅ Accept',
+              action: 'ACCEPT_CALL',
+              showsUserInterface: true,
+            },
+            {
+              title: '❌ Decline',
+              action: 'DECLINE_CALL',
+              showsUserInterface: false,
+            },
+          ],
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: {
+              title: `${callType === 'video' ? '📹' : '📞'} Incoming Call`,
+              body: `${callerName} is calling you...`,
+            },
+            sound: 'default',
+            badge: 1,
+            'content-available': 1, // ✅ Wake up app in background
+            'mutable-content': 1, // Allow notification modification
+            category: 'INCOMING_CALL', // Custom category for call notifications
+            'interruption-level': 'time-sensitive', // iOS 15+ for critical alerts
+          },
+        },
+        headers: {
+          'apns-priority': '10', // Maximum priority
+          'apns-push-type': 'alert',
+        },
+      },
+      tokens: tokens,
+    };
+
+    const response = await admin.messaging().sendMulticast(message);
+
+    console.log(`📞 Call notification sent to ${tokens.length} devices:`, {
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      callType: callType,
+      caller: callerName,
+    });
+
+    return {
+      success: true,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      responses: response.responses,
+    };
+  } catch (error) {
+    console.error('❌ Error sending call notification:', error);
+    return { success: false, error: error.message };
+  }
 };
