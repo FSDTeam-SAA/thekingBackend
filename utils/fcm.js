@@ -369,10 +369,10 @@ export const sendCallNotification = async (tokens, callData) => {
     const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
 
     const message = {
-      // ⚠️ Don't use 'notification' block for calls - use data-only for custom handling
+      // ✅ DATA-ONLY for background handler to work properly
       data: {
         type: 'incoming_call',
-        callType: callType, // 'audio' or 'video'
+        callType: callType,
         callerId: callerId,
         callerName: callerName,
         callerAvatar: callerAvatar,
@@ -380,38 +380,11 @@ export const sendCallNotification = async (tokens, callData) => {
         isVideo: callType === 'video' ? 'true' : 'false',
         timestamp: new Date().toISOString(),
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        // 🎯 For full-screen intent (screen locked)
-        fullScreenIntent: 'true',
-        // For notification display in Flutter
-        title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType === 'video' ? 'Video' : 'Audio'} Call`,
-        body: `${callerName} is calling you...`,
       },
       android: {
         priority: 'high',
-        notification: {
-          channelId: 'docmobi_call_notifications', // ✅ IMPORTANT: Create this channel in Flutter
-          priority: 'max', // Maximum priority for calls
-          visibility: 'public', // Show on lock screen
-          sound: 'default',
-          tag: `call_${chatId}`, // Prevent duplicate notifications
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-          // ✅ CRITICAL: Show full-screen notification for incoming calls
-          defaultVibrateTimings: false,
-          vibrateTimingsMillis: [0, 1000, 500, 1000], // Custom vibration pattern
-          // 🔴🟢 Action buttons for notification
-          actions: [
-            {
-              title: '✅ Accept',
-              action: 'ACCEPT_CALL',
-              showsUserInterface: true,
-            },
-            {
-              title: '❌ Decline',
-              action: 'DECLINE_CALL',
-              showsUserInterface: false,
-            },
-          ],
-        },
+        ttl: 30000, // 30 seconds
+        // ✅ NO notification block - let Flutter handle it
       },
       apns: {
         payload: {
@@ -420,16 +393,15 @@ export const sendCallNotification = async (tokens, callData) => {
               title: `${callType === 'video' ? '📹' : '📞'} Incoming Call`,
               body: `${callerName} is calling you...`,
             },
-            sound: 'default',
-            badge: 1,
-            'content-available': 1, // ✅ Wake up app in background
-            'mutable-content': 1, // Allow notification modification
-            category: 'INCOMING_CALL', // Custom category for call notifications
-            'interruption-level': 'time-sensitive', // iOS 15+ for critical alerts
+            sound: 'default', // ✅ Default iOS sound
+            'content-available': 1,
+            'mutable-content': 1,
+            category: 'INCOMING_CALL',
+            'interruption-level': 'time-sensitive',
           },
         },
         headers: {
-          'apns-priority': '10', // Maximum priority
+          'apns-priority': '10',
           'apns-push-type': 'alert',
         },
       },
