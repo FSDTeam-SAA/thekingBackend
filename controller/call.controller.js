@@ -72,27 +72,29 @@ export const initiateCall = catchAsync(async (req, res) => {
     callerAvatar: req.user.avatar?.url,
   });
 
-  // 📱 ✅ Send FCM notification to receiver (for when app is CLOSED/BACKGROUND)
+  // 📱 ✅ Send FCM call notification to receiver (for when app is CLOSED/BACKGROUND)
   try {
-    await sendFCMNotificationToUsers(
-      [receiverId],
-      {
-        title: `${callType === "video" ? "📹" : "📞"} Incoming ${callType === "video" ? "Video" : "Audio"} Call`,
-        body: `${req.user.fullName} is calling you...`,
-      },
-      {
-        type: "incoming_call",
-        callType: callType, // 'audio' or 'video'
-        chatId: String(actualChatId),
-        callerId: String(callerId),
-        callerName: req.user.fullName,
-        callerAvatar: req.user.avatar?.url || "",
-        isVideo: callType === "video" ? "true" : "false", // String for data payload
-        timestamp: new Date().toISOString(),
-      },
-      User
-    );
-    console.log(`✅ Call FCM notification sent to receiver: ${receiverId}`);
+    // Get receiver's FCM tokens
+    const receiver = await User.findById(receiverId);
+    if (!receiver || !receiver.fcmTokens || !receiver.fcmTokens.length) {
+      console.log('⚠️ Receiver has no FCM tokens');
+    } else {
+      const activeTokens = receiver.fcmTokens
+        .filter(t => t.isActive)
+        .map(t => t.token);
+
+      if (activeTokens.length > 0) {
+        const { sendCallNotification } = await import('../utils/fcm.js');
+        await sendCallNotification(activeTokens, {
+          callerId: String(callerId),
+          callerName: req.user.fullName,
+          callerAvatar: req.user.avatar?.url || '',
+          chatId: String(actualChatId),
+          callType: callType, // 'audio' or 'video'
+        });
+        console.log(`✅ Call FCM notification sent to receiver: ${receiverId}`);
+      }
+    }
   } catch (fcmError) {
     console.error("❌ Failed to send FCM notification for call:", fcmError);
     // Don't throw error, call can continue via socket
