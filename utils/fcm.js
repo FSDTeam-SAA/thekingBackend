@@ -460,3 +460,37 @@ export const sendCallNotification = async (tokens, callData) => {
     return { success: false, error: error.message };
   }
 };
+
+/**
+ * 📴 Send Call Cancel/End Notification
+ * @param {Array<string>} tokens - Array of FCM tokens
+ * @param {Object} data - Call data
+ */
+export const sendCallCancelNotification = async (tokens, data) => {
+  try {
+    if (!tokens || !tokens.length) return;
+
+    const message = {
+      data: {
+        type: 'cancel_call',
+        chatId: String(data.chatId),
+        timestamp: new Date().toISOString(),
+      },
+      android: { priority: 'high', ttl: 0 },
+      apns: {
+        payload: {
+          aps: {
+            'content-available': 1, // Silent push for iOS
+          },
+        },
+        headers: { 'apns-priority': '10' },
+      },
+      tokens: tokens,
+    };
+
+    await admin.messaging().sendEachForMulticast(message);
+    console.log(`📴 Call cancel notification sent to ${tokens.length} devices`);
+  } catch (error) {
+    console.error('❌ Error sending call cancel notification:', error);
+  }
+};

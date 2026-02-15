@@ -131,6 +131,26 @@ export const endCall = catchAsync(async (req, res) => {
     chatId: String(chatId),
   });
 
+  // 📱 ✅ Send FCM cancel notification (for background/terminated state)
+  try {
+    const receiver = await User.findById(userId);
+    if (receiver && receiver.fcmTokens && receiver.fcmTokens.length > 0) {
+      const activeTokens = receiver.fcmTokens
+        .filter(t => t.isActive)
+        .map(t => t.token);
+
+      if (activeTokens.length > 0) {
+        const { sendCallCancelNotification } = await import('../utils/fcm.js');
+        await sendCallCancelNotification(activeTokens, {
+          chatId: String(chatId),
+        });
+        console.log(`📴 Call cancel FCM sent to user: ${userId}`);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Failed to send FCM cancel notification:", error);
+  }
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
