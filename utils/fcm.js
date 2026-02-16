@@ -375,18 +375,12 @@ export const sendCallNotification = async (tokens, callData) => {
 
     const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
 
-    console.log('📞 Sending call notification:', {
-      callType,
-      callerName,
-      chatId,
-      tokensCount: tokens.length,
-    });
+    // Generate unique call ID for tracking
+    const { v4: uuidv4 } = require('uuid');
+    const callUuid = uuidv4();
 
     const message = {
-      // ❌ NO notification block for Android
-      // This ensures the background handler runs
-
-      // ✅ Data-only payload
+      // ✅ Data-only for Android (triggers background handler immediately)
       data: {
         type: 'incoming_call',
         callType: String(callType),
@@ -396,22 +390,20 @@ export const sendCallNotification = async (tokens, callData) => {
         chatId: String(chatId),
         isVideo: callType === 'video' ? 'true' : 'false',
         timestamp: new Date().toISOString(),
-        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        // ✅ Title and body in data for Flutter to use
-        title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
-        body: `${callerName} is calling you...`,
+        // ✅ NEW: Add unique ID and duration for CallKit
+        uuid: callUuid,
+        duration: '30000', // 30 seconds timeout
       },
 
       android: {
         priority: 'high',
-        ttl: 30000, // 30 seconds
-        // ❌ NO notification block - let Flutter background handler create it
+        ttl: 30000,
+        // ✅ NO notification block - let CallKit handle UI
       },
 
       apns: {
         payload: {
           aps: {
-            // ✅ iOS needs alert block
             alert: {
               title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
               body: `${callerName} is calling you...`,
@@ -433,27 +425,15 @@ export const sendCallNotification = async (tokens, callData) => {
 
     const response = await admin.messaging().sendEachForMulticast(message);
 
-    console.log(`📞 Call notification sent to ${tokens.length} devices:`, {
+    console.log(`📞 Call notification sent:`, {
       successCount: response.successCount,
       failureCount: response.failureCount,
-      callType: callType,
-      caller: callerName,
     });
-
-    // Log failures
-    if (response.failureCount > 0) {
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          console.error(`❌ Failed to send call notification to token ${idx}:`, resp.error?.message);
-        }
-      });
-    }
 
     return {
       success: true,
       successCount: response.successCount,
       failureCount: response.failureCount,
-      responses: response.responses,
     };
   } catch (error) {
     console.error('❌ Error sending call notification:', error);
