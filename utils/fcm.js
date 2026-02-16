@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import { v4 as uuidv4 } from 'uuid';
 
 // Firebase Admin initialization
 let firebaseApp = null;
@@ -376,7 +377,6 @@ export const sendCallNotification = async (tokens, callData) => {
     const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
 
     // Generate unique call ID for tracking
-    const { v4: uuidv4 } = require('uuid');
     const callUuid = uuidv4();
 
     const message = {
