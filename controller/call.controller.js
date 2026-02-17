@@ -5,7 +5,7 @@ import sendResponse from "../utils/sendResponse.js";
 import { Chat } from "../model/chat.model.js";
 import { User } from "../model/user.model.js";
 import { io } from "../server.js";
-import { sendFCMNotificationToUsers } from "../utils/fcm.js";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * Initiate a call (audio or video)
@@ -13,25 +13,25 @@ import { sendFCMNotificationToUsers } from "../utils/fcm.js";
  */
 export const initiateCall = catchAsync(async (req, res) => {
   const callerId = req.user._id;
-  const { chatId, receiverId, callType } = req.body; // callType: 'audio' or 'video'
+  const { chatId, receiverId, isVideo } = req.body;
 
-  if (!chatId || !receiverId || !callType) {
+  // ✅ Support both 'isVideo' (frontend sends this) and 'callType' (old format)
+  const callType = req.body.callType || (isVideo ? "video" : "audio");
+
+  if (!chatId || !receiverId) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "chatId, receiverId, and callType are required"
+      "chatId and receiverId are required"
     );
   }
 
-  // Verify chat exists or create one (since we are using Agora now, we might not have legacy Chats for everyone)
+  // Find or create chat
   let chat = await Chat.findById(chatId);
-
   if (!chat) {
-    // Try to find a 1v1 chat between these participants
     chat = await Chat.findOne({
       participants: { $all: [callerId, receiverId] },
       isGroupChat: false,
     });
-
     if (!chat) {
       chat = await Chat.create({
         participants: [callerId, receiverId],
@@ -42,7 +42,7 @@ export const initiateCall = catchAsync(async (req, res) => {
 
   const actualChatId = chat._id;
 
-  // Verify both users are in chat (redundant if we just created it, but good for security on existing)
+  // Verify participants
   const callerInChat = chat.participants.some(
     (p) => String(p) === String(callerId)
   );
@@ -51,53 +51,62 @@ export const initiateCall = catchAsync(async (req, res) => {
   );
 
   if (!callerInChat || !receiverInChat) {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      "Both users must be in the chat"
-    );
+    throw new AppError(httpStatus.FORBIDDEN, "Both users must be in the chat");
   }
 
-  // Get receiver info
+  // Get receiver
   const receiver = await User.findById(receiverId);
   if (!receiver) {
     throw new AppError(httpStatus.NOT_FOUND, "Receiver not found");
   }
 
-  // Emit socket event to receiver (for when app is OPEN)
-  io.to(`chat_${receiverId}`).emit("call:incoming", {
+  // ✅ ONE UUID for both socket + FCM — prevents double CallKit UI
+  const callUuid = uuidv4();
+  const callTimestamp = new Date().toISOString();
+
+  const callPayload = {
     fromUserId: String(callerId),
     chatId: String(actualChatId),
     isVideo: callType === "video",
     callerName: req.user.fullName,
-    callerAvatar: req.user.avatar?.url,
-  });
+    callerAvatar: req.user.avatar?.url || "",
+    uuid: callUuid,
+    timestamp: callTimestamp,
+  };
 
-  // 📱 ✅ Send FCM call notification to receiver (for when app is CLOSED/BACKGROUND)
+  // ✅ server.js এ joinUserRoom করলে room হয় chat_${userId}
+  // আর connection query তে userId দিলে room হয় ${userId}
+  // দুটোতেই emit করি যাতে কোনো mismatch না হয়
+  io.to(`chat_${receiverId}`).emit("call:incoming", callPayload);
+  io.to(String(receiverId)).emit("call:incoming", callPayload);
+
+  console.log(`📞 Call emitted to receiver rooms: chat_${receiverId} & ${receiverId}`);
+  console.log(`   UUID: ${callUuid} | Type: ${callType}`);
+
+  // ✅ Send FCM with same UUID (background / terminated state)
   try {
-    // Get receiver's FCM tokens
-    const receiver = await User.findById(receiverId);
-    if (!receiver || !receiver.fcmTokens || !receiver.fcmTokens.length) {
-      console.log('⚠️ Receiver has no FCM tokens');
-    } else {
-      const activeTokens = receiver.fcmTokens
-        .filter(t => t.isActive)
-        .map(t => t.token);
+    const activeTokens = (receiver.fcmTokens || [])
+      .filter((t) => t.isActive)
+      .map((t) => t.token);
 
-      if (activeTokens.length > 0) {
-        const { sendCallNotification } = await import('../utils/fcm.js');
-        await sendCallNotification(activeTokens, {
-          callerId: String(callerId),
-          callerName: req.user.fullName,
-          callerAvatar: req.user.avatar?.url || '',
-          chatId: String(actualChatId),
-          callType: callType, // 'audio' or 'video'
-        });
-        console.log(`✅ Call FCM notification sent to receiver: ${receiverId}`);
-      }
+    if (activeTokens.length > 0) {
+      const { sendCallNotification } = await import("../utils/fcm.js");
+      await sendCallNotification(activeTokens, {
+        callerId: String(callerId),
+        callerName: req.user.fullName,
+        callerAvatar: req.user.avatar?.url || "",
+        chatId: String(actualChatId),
+        callType: callType,
+        uuid: callUuid,        // ✅ Same UUID — no double CallKit
+        timestamp: callTimestamp,
+      });
+      console.log(`✅ Call FCM sent to ${activeTokens.length} device(s)`);
+    } else {
+      console.log("⚠️ Receiver has no active FCM tokens");
     }
   } catch (fcmError) {
-    console.error("❌ Failed to send FCM notification for call:", fcmError);
-    // Don't throw error, call can continue via socket
+    console.error("❌ FCM call notification failed:", fcmError);
+    // Don't throw — socket already delivered
   }
 
   sendResponse(res, {
@@ -108,6 +117,7 @@ export const initiateCall = catchAsync(async (req, res) => {
       chatId: actualChatId,
       receiverId,
       callType,
+      uuid: callUuid,
     },
   });
 });
@@ -126,29 +136,33 @@ export const endCall = catchAsync(async (req, res) => {
     );
   }
 
-  // Emit socket event to other user
-  io.to(`chat_${userId}`).emit("call:end", {
+  const endPayload = {
     chatId: String(chatId),
-  });
+    timestamp: new Date().toISOString(),
+  };
 
-  // 📱 ✅ Send FCM cancel notification (for background/terminated state)
+  // ✅ Both room names + both event names for full compatibility
+  io.to(`chat_${userId}`).emit("call:ended", endPayload);
+  io.to(`chat_${userId}`).emit("call:end", endPayload);
+  io.to(String(userId)).emit("call:ended", endPayload);
+  io.to(String(userId)).emit("call:end", endPayload);
+
+  console.log(`📴 Call end emitted to: chat_${userId} & ${userId}`);
+
+  // ✅ Send FCM cancel (background / terminated state)
   try {
     const receiver = await User.findById(userId);
-    if (receiver && receiver.fcmTokens && receiver.fcmTokens.length > 0) {
-      const activeTokens = receiver.fcmTokens
-        .filter(t => t.isActive)
-        .map(t => t.token);
+    const activeTokens = (receiver?.fcmTokens || [])
+      .filter((t) => t.isActive)
+      .map((t) => t.token);
 
-      if (activeTokens.length > 0) {
-        const { sendCallCancelNotification } = await import('../utils/fcm.js');
-        await sendCallCancelNotification(activeTokens, {
-          chatId: String(chatId),
-        });
-        console.log(`📴 Call cancel FCM sent to user: ${userId}`);
-      }
+    if (activeTokens.length > 0) {
+      const { sendCallCancelNotification } = await import("../utils/fcm.js");
+      await sendCallCancelNotification(activeTokens, { chatId: String(chatId) });
+      console.log(`📴 Call cancel FCM sent to ${activeTokens.length} device(s)`);
     }
   } catch (error) {
-    console.error("❌ Failed to send FCM cancel notification:", error);
+    console.error("❌ FCM cancel notification failed:", error);
   }
 
   sendResponse(res, {
@@ -166,7 +180,6 @@ export const getToken = catchAsync(async (req, res) => {
   const { channelName } = req.query;
   const uid = req.user.numericUid || 0;
 
-  // Import dynamically to avoid top-level failures if package missing
   const { generateAgoraToken } = await import("../utils/agoraToken.js");
 
   if (!channelName) {
@@ -179,10 +192,6 @@ export const getToken = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Token generated successfully",
-    data: {
-      token,
-      channelName,
-      uid,
-    },
+    data: { token, channelName, uid },
   });
 });
