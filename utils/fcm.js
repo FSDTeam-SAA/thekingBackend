@@ -380,7 +380,7 @@ export const sendCallNotification = async (tokens, callData) => {
     const callUuid = callData.uuid || uuidv4();
 
     const message = {
-      // ✅ Data-only for Android (triggers background handler immediately)
+      // ✅ Data payload for Flutter background handler (triggers CallKit)
       data: {
         type: 'incoming_call',
         callType: String(callType),
@@ -390,15 +390,33 @@ export const sendCallNotification = async (tokens, callData) => {
         chatId: String(chatId),
         isVideo: callType === 'video' ? 'true' : 'false',
         timestamp: new Date().toISOString(),
-        // ✅ NEW: Add unique ID and duration for CallKit
+        // ✅ Unique ID and duration for CallKit
         uuid: callUuid,
         duration: '30000', // 30 seconds timeout
+      },
+
+      // ✅ CRITICAL: Notification block required for Android to deliver FCM
+      // when app is killed/force-stopped. Without this, data-only messages
+      // are silently dropped on Samsung, Xiaomi, Huawei, etc.
+      notification: {
+        title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
+        body: `${callerName} is calling you...`,
       },
 
       android: {
         priority: 'high',
         ttl: 30000,
-        // ✅ NO notification block - let CallKit handle UI
+        notification: {
+          channelId: 'incoming_call_channel',
+          priority: 'max',
+          visibility: 'public',
+          importance: 'max',
+          sound: 'default',
+          // ✅ Full-screen intent to wake device and show call UI
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          tag: `call_${callUuid}`, // Prevent duplicate notifications
+        },
       },
 
       apns: {
