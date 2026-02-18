@@ -127,7 +127,7 @@ export const initiateCall = catchAsync(async (req, res) => {
  * POST /api/v1/call/end
  */
 export const endCall = catchAsync(async (req, res) => {
-  const { chatId, userId } = req.body;
+  const { chatId, userId, uuid } = req.body;
 
   if (!chatId || !userId) {
     throw new AppError(
@@ -158,8 +158,8 @@ export const endCall = catchAsync(async (req, res) => {
 
     if (activeTokens.length > 0) {
       const { sendCallCancelNotification } = await import("../utils/fcm.js");
-      await sendCallCancelNotification(activeTokens, { chatId: String(chatId) });
-      console.log(`📴 Call cancel FCM sent to ${activeTokens.length} device(s)`);
+      await sendCallCancelNotification(activeTokens, { chatId: String(chatId), uuid: uuid || '' });
+      console.log(`📴 Call cancel FCM sent to ${activeTokens.length} device(s) (UUID: ${uuid || 'none'})`);
     }
   } catch (error) {
     console.error("❌ FCM cancel notification failed:", error);

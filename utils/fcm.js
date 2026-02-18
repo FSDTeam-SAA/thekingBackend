@@ -454,6 +454,7 @@ export const sendCallCancelNotification = async (tokens, data) => {
       data: {
         type: 'cancel_call',
         chatId: String(data.chatId),
+        uuid: String(data.uuid || ''),
         timestamp: new Date().toISOString(),
       },
       android: { priority: 'high', ttl: 0 },
