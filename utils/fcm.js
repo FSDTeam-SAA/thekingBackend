@@ -376,8 +376,8 @@ export const sendCallNotification = async (tokens, callData) => {
 
     const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
 
-    // Generate unique call ID for tracking
-    const callUuid = uuidv4();
+    // ✅ Use UUID from callData (from call.controller.js) if available, otherwise generate
+    const callUuid = callData.uuid || uuidv4();
 
     const message = {
       // ✅ Data-only for Android (triggers background handler immediately)
