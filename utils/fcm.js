@@ -395,13 +395,15 @@ export const sendCallNotification = async (tokens, callData) => {
         duration: '30000', // 30 seconds timeout
       },
 
-      // ✅ CRITICAL: Notification block required for Android to deliver FCM
-      // when app is killed/force-stopped. Without this, data-only messages
-      // are silently dropped on Samsung, Xiaomi, Huawei, etc.
-      notification: {
-        title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
-        body: `${callerName} is calling you...`,
-      },
+      // ✅ CHANGED: Removed 'notification' block to ensure this is treated as a DATA message.
+      // This forces the 'onBackgroundMessage' handler to run on Android, which is REQUIRED
+      // to trigger the FlutterCallkitIncoming UI.
+      // If we include 'notification', the system displays a standard tray notification
+      // and DOES NOT run our background code until the user clicks it.
+      // notification: {
+      //   title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
+      //   body: `${callerName} is calling you...`,
+      // },
 
       android: {
         priority: 'high',
