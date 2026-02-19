@@ -408,17 +408,20 @@ export const sendCallNotification = async (tokens, callData) => {
       android: {
         priority: 'high',
         ttl: 30000,
-        notification: {
-          channelId: 'incoming_call_channel',
-          priority: 'max',
-          visibility: 'public',
-          importance: 'max',
-          sound: 'default',
-          // ✅ Full-screen intent to wake device and show call UI
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          tag: `call_${callUuid}`, // Prevent duplicate notifications
-        },
+        // ✅ CHANGED: Removed 'android.notification' block as well.
+        // Even if root 'notification' is removed, this nested block can still trigger
+        // a system notification on some devices/SDK versions.
+        // We want PURE DATA message to ensure onBackgroundMessage triggers.
+        // notification: {
+        //   channelId: 'incoming_call_channel',
+        //   priority: 'max',
+        //   visibility: 'public',
+        //   importance: 'max',
+        //   sound: 'default',
+        //   defaultSound: true,
+        //   defaultVibrateTimings: true,
+        //   tag: `call_${callUuid}`,
+        // },
       },
 
       apns: {
