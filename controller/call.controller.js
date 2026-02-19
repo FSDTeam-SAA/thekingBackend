@@ -173,6 +173,49 @@ export const endCall = catchAsync(async (req, res) => {
 });
 
 /**
+ * Accept a call (Signal via API if socket is slow)
+ * POST /api/v1/call/accept
+ */
+export const acceptCall = catchAsync(async (req, res) => {
+  const { chatId, fromUserId } = req.body; // fromUserId is the CALLER's ID
+  const receiverId = req.user._id;
+
+  if (!chatId || !fromUserId) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "chatId and fromUserId are required"
+    );
+  }
+
+  const acceptPayload = {
+    chatId: String(chatId),
+    fromUserId: String(fromUserId), // The one who CALLED
+    timestamp: new Date().toISOString(),
+  };
+
+  // ✅ Emit 'call:accept' to the CALLER's room
+  // The caller is listening on their own userId room or chat room
+  io.to(String(fromUserId)).emit("call:accept", {
+    chatId: String(chatId),
+    fromUserId: String(receiverId), // The one who ACCEPTED (me)
+  });
+
+  io.to(`chat_${fromUserId}`).emit("call:accept", {
+    chatId: String(chatId),
+    fromUserId: String(receiverId),
+  });
+
+  console.log(`📞 Call ACCEPTED via API by ${receiverId}`);
+  console.log(`   Signal sent to caller: ${fromUserId}`);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Call accepted signal sent",
+  });
+});
+
+/**
  * Generate Agora Token
  * GET /api/v1/call/token?channelName=...
  */
