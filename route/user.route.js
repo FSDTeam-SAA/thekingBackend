@@ -16,7 +16,7 @@ import {
   searchDoctors,
   getNearbyDoctors,
 } from "../controller/user.controller.js";
-import { registerFCMToken } from "../controller/fcm.controller.js";
+import { registerFCMToken, removeFCMToken } from "../controller/fcm.controller.js";
 import { protect, isAdmin } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
 
@@ -44,6 +44,7 @@ router.patch("/doctor/:id/approval", protect, updateDoctorApprovalStatus);
 router.patch("/update-realtime-location", protect, updateLocation);
 router.post("/find-doctors", searchDoctors);
 router.post("/fcm-token", protect, registerFCMToken);
+router.delete("/fcm-token", protect, removeFCMToken); // ✅ FIX: Allow clients to deactivate FCM token on logout
 
 
 export default router;

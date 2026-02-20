@@ -193,14 +193,14 @@ export const acceptCall = catchAsync(async (req, res) => {
     timestamp: new Date().toISOString(),
   };
 
-  // ✅ Emit 'call:accept' to the CALLER's room
-  // The caller is listening on their own userId room or chat room
-  io.to(String(fromUserId)).emit("call:accept", {
+  // ✅ FIX: Emit 'call:accepted' (NOT 'call:accept') — caller's call screen listens for 'call:accepted'
+  // Previously emitted 'call:accept' which the Flutter client never received
+  io.to(String(fromUserId)).emit("call:accepted", {
     chatId: String(chatId),
     fromUserId: String(receiverId), // The one who ACCEPTED (me)
   });
 
-  io.to(`chat_${fromUserId}`).emit("call:accept", {
+  io.to(`chat_${fromUserId}`).emit("call:accepted", {
     chatId: String(chatId),
     fromUserId: String(receiverId),
   });
