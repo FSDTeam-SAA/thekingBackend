@@ -303,6 +303,13 @@ export const login = catchAsync(async (req, res) => {
   const user = await User.isUserExistsByEmail(email);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
+  if (user.isDeleted) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "This account has been deleted. Please contact support if this is an error.",
+    );
+  }
+
   if (
     user?.password &&
     !(await User.isPasswordMatched(password, user.password))

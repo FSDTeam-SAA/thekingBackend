@@ -213,6 +213,8 @@ const userSchema = new Schema(
     //   token: { type: String, default: "" },
     // },
 
+    isDeleted: { type: Boolean, default: false },
+
     password_reset_token: { type: String, default: "" },
 
     // fine: { type: Number, default: 0 },

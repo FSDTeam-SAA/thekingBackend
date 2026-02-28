@@ -1254,6 +1254,56 @@ export const deleteUser = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * ✅ Delete current user account (Soft delete + Data wipe)
+ */
+export const deleteMyAccount = catchAsync(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  // Delete avatar from Cloudinary if exists
+  if (user.avatar?.public_id) {
+    await deleteFromCloudinary(user.avatar.public_id).catch(() => { });
+  }
+
+  // Delete profile photos from Cloudinary
+  if (user.profilePhotos && user.profilePhotos.length > 0) {
+    for (const photo of user.profilePhotos) {
+      if (photo.public_id) {
+        await deleteFromCloudinary(photo.public_id).catch(() => { });
+      }
+    }
+  }
+
+  // Wipe PII and set isDeleted flag
+  user.fullName = "Deleted User";
+  user.phone = undefined;
+  user.username = undefined;
+  user.bio = undefined;
+  user.address = undefined;
+  user.experienceYears = 0;
+  user.specialty = undefined;
+  user.specialties = [];
+  user.degrees = [];
+  user.fees = { amount: 0, currency: "USD" };
+  user.weeklySchedule = [];
+  user.dependents = [];
+  user.avatar = { public_id: "", url: "" };
+  user.profilePhotos = [];
+  user.fcmTokens = [];
+  user.refreshToken = "";
+  user.isDeleted = true;
+
+  await user.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Your account has been deleted successfully",
+    data: null,
+  });
+});
+
 //update location for client
 export const updateLocation = catchAsync(async (req, res) => {
   const { lat, lng } = req.body;
