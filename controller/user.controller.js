@@ -1255,18 +1255,34 @@ export const deleteUser = catchAsync(async (req, res) => {
 });
 
 /**
- * ✅ Delete current user account (Soft delete + Data wipe)
+ * ✅ Delete current user account (Hard delete + Deep Data wipe)
  */
 export const deleteMyAccount = catchAsync(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const userId = req.user._id;
+  const user = await User.findById(userId);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
-  // Delete avatar from Cloudinary if exists
+  // Dynamically import models to avoid circular dependencies
+  const { Appointment } = await import("../model/appointment.model.js");
+  const { DoctorReview } = await import("../model/doctorReview.model.js");
+  const { Post } = await import("../model/post.model.js");
+  const { PostComment } = await import("../model/postComment.model.js");
+  const { PostLike } = await import("../model/postLike.model.js");
+  const { Reel } = await import("../model/reel.model.js");
+  const { ReelComment } = await import("../model/reelComment.model.js");
+  const { ReelLike } = await import("../model/reelLike.model.js");
+  const { Chat } = await import("../model/chat.model.js");
+  const { Message } = await import("../model/message.model.js");
+  const { Notification } = await import("../model/notification.model.js");
+  const { paymentInfo } = await import("../model/payment.model.js");
+  const { ReferralCode } = await import("../model/referralCode.model.js");
+
+  // Delete avatars from Cloudinary
   if (user.avatar?.public_id) {
     await deleteFromCloudinary(user.avatar.public_id).catch(() => { });
   }
 
-  // Delete profile photos from Cloudinary
+  // Delete doctor profile photos from Cloudinary
   if (user.profilePhotos && user.profilePhotos.length > 0) {
     for (const photo of user.profilePhotos) {
       if (photo.public_id) {
@@ -1275,31 +1291,64 @@ export const deleteMyAccount = catchAsync(async (req, res) => {
     }
   }
 
-  // Wipe PII and set isDeleted flag
-  user.fullName = "Deleted User";
-  user.phone = undefined;
-  user.username = undefined;
-  user.bio = undefined;
-  user.address = undefined;
-  user.experienceYears = 0;
-  user.specialty = undefined;
-  user.specialties = [];
-  user.degrees = [];
-  user.fees = { amount: 0, currency: "USD" };
-  user.weeklySchedule = [];
-  user.dependents = [];
-  user.avatar = { public_id: "", url: "" };
-  user.profilePhotos = [];
-  user.fcmTokens = [];
-  user.refreshToken = "";
-  user.isDeleted = true;
+  // 1. Delete Appointments
+  await Appointment.deleteMany({
+    $or: [{ patient: userId }, { doctor: userId }],
+  });
 
-  await user.save();
+  // 2. Delete Doctor Reviews
+  await DoctorReview.deleteMany({
+    $or: [{ patient: userId }, { doctor: userId }],
+  });
+
+  // 3. Keep track of User's Posts to delete associated likes & comments
+  const userPosts = await Post.find({ author: userId });
+  const postIds = userPosts.map((p) => p._id);
+  if (postIds.length > 0) {
+    await PostComment.deleteMany({ post: { $in: postIds } });
+    await PostLike.deleteMany({ post: { $in: postIds } });
+    await Post.deleteMany({ _id: { $in: postIds } });
+  }
+
+  // 4. Keep track of User's Reels to delete associated likes & comments
+  const userReels = await Reel.find({ author: userId });
+  const reelIds = userReels.map((r) => r._id);
+  if (reelIds.length > 0) {
+    await ReelComment.deleteMany({ reel: { $in: reelIds } });
+    await ReelLike.deleteMany({ reel: { $in: reelIds } });
+    await Reel.deleteMany({ _id: { $in: reelIds } });
+  }
+
+  // 5. Delete User's Likes and Comments on OTHER people's content
+  await PostComment.deleteMany({ user: userId });
+  await PostLike.deleteMany({ user: userId });
+  await ReelComment.deleteMany({ user: userId });
+  await ReelLike.deleteMany({ user: userId });
+
+  // 6. Delete Messages sent by the user
+  await Message.deleteMany({ sender: userId });
+
+  // 7. Delete Chats where user is a participant
+  await Chat.deleteMany({ participants: userId });
+
+  // 8. Delete Notifications sent to or from user
+  await Notification.deleteMany({
+    $or: [{ userId: userId }, { fromUserId: userId }],
+  });
+
+  // 9. Delete Payment records
+  await paymentInfo.deleteMany({ userId: userId });
+
+  // 10. Delete Referral codes
+  await ReferralCode.deleteMany({ generatedBy: userId });
+
+  // 11. Final: Delete the User Record
+  await User.findByIdAndDelete(userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: "Your account has been deleted successfully",
+    message: "Your account and all data have been permanently deleted",
     data: null,
   });
 });
