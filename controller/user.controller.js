@@ -1290,19 +1290,20 @@ export const deleteMyAccount = catchAsync(async (req, res) => {
       }
     }
   }
+  const uid = new mongoose.Types.ObjectId(String(userId));
 
-  // 1. Delete Appointments
+  // 1. Delete Appointments (User as patient or doctor)
   await Appointment.deleteMany({
-    $or: [{ patient: userId }, { doctor: userId }],
+    $or: [{ patient: uid }, { doctor: uid }],
   });
 
-  // 2. Delete Doctor Reviews
+  // 2. Delete Doctor Reviews (User as patient or doctor)
   await DoctorReview.deleteMany({
-    $or: [{ patient: userId }, { doctor: userId }],
+    $or: [{ patient: uid }, { doctor: uid }],
   });
 
-  // 3. Keep track of User's Posts to delete associated likes & comments
-  const userPosts = await Post.find({ author: userId });
+  // 3. Delete User's own Posts + associated content
+  const userPosts = await Post.find({ author: uid });
   const postIds = userPosts.map((p) => p._id);
   if (postIds.length > 0) {
     await PostComment.deleteMany({ post: { $in: postIds } });
@@ -1310,8 +1311,8 @@ export const deleteMyAccount = catchAsync(async (req, res) => {
     await Post.deleteMany({ _id: { $in: postIds } });
   }
 
-  // 4. Keep track of User's Reels to delete associated likes & comments
-  const userReels = await Reel.find({ author: userId });
+  // 4. Delete User's own Reels + associated content
+  const userReels = await Reel.find({ author: uid });
   const reelIds = userReels.map((r) => r._id);
   if (reelIds.length > 0) {
     await ReelComment.deleteMany({ reel: { $in: reelIds } });
@@ -1319,28 +1320,48 @@ export const deleteMyAccount = catchAsync(async (req, res) => {
     await Reel.deleteMany({ _id: { $in: reelIds } });
   }
 
-  // 5. Delete User's Likes and Comments on OTHER people's content
-  await PostComment.deleteMany({ user: userId });
-  await PostLike.deleteMany({ user: userId });
-  await ReelComment.deleteMany({ user: userId });
-  await ReelLike.deleteMany({ user: userId });
+  // 5. Delete User's interactions on OTHER people's content
+  // Decrement Post like counts and delete likes
+  const userPostLikes = await PostLike.find({ user: uid });
+  for (const pl of userPostLikes) {
+    if (pl.post) {
+      await Post.findByIdAndUpdate(pl.post, { $inc: { likesCount: -1 } }).catch(() => { });
+    }
+  }
+  await PostLike.deleteMany({ user: uid });
+
+  // Decrement Post comment counts and delete comments
+  const userPostComments = await PostComment.find({ author: uid });
+  for (const pc of userPostComments) {
+    if (pc.post) {
+      await Post.findByIdAndUpdate(pc.post, { $inc: { commentsCount: -1 } }).catch(() => { });
+    }
+  }
+  await PostComment.deleteMany({ author: uid });
+
+  // Reels: comments use 'author', likes use 'likes' array or ReelLike (legacy)
+  await ReelComment.deleteMany({ author: uid });
+  await ReelLike.deleteMany({ user: uid });
+  await Reel.updateMany({ likes: uid }, { $pull: { likes: uid } });
+  await Reel.updateMany({ likes: String(uid) }, { $pull: { likes: String(uid) } }); // Handle string IDs if any exist
 
   // 6. Delete Messages sent by the user
-  await Message.deleteMany({ sender: userId });
+  await Message.deleteMany({ sender: uid });
+  await Message.updateMany({ seenBy: uid }, { $pull: { seenBy: uid } });
 
   // 7. Delete Chats where user is a participant
-  await Chat.deleteMany({ participants: userId });
+  await Chat.deleteMany({ participants: uid });
 
   // 8. Delete Notifications sent to or from user
   await Notification.deleteMany({
-    $or: [{ userId: userId }, { fromUserId: userId }],
+    $or: [{ userId: uid }, { fromUserId: uid }],
   });
 
   // 9. Delete Payment records
-  await paymentInfo.deleteMany({ userId: userId });
+  await paymentInfo.deleteMany({ userId: uid });
 
   // 10. Delete Referral codes
-  await ReferralCode.deleteMany({ generatedBy: userId });
+  await ReferralCode.deleteMany({ generatedBy: uid });
 
   // 11. Final: Delete the User Record
   await User.findByIdAndDelete(userId);

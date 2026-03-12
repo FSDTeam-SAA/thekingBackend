@@ -161,9 +161,17 @@ export const resolveReport = catchAsync(async (req, res) => {
       await ReelLike.deleteMany({ reel: itemId });
       await Reel.findByIdAndDelete(itemId);
     } else if (itemType === "Comment") {
-      // Could be PostComment or ReelComment
-      await PostComment.findByIdAndDelete(itemId);
-      await ReelComment.findByIdAndDelete(itemId);
+      // Find comment first to decrement count if it's a PostComment
+      const pc = await PostComment.findById(itemId);
+      if (pc) {
+        await Post.findByIdAndUpdate(pc.post, { $inc: { commentsCount: -1 } }).catch(() => {});
+        await PostComment.findByIdAndDelete(itemId);
+      }
+      
+      const rc = await ReelComment.findById(itemId);
+      if (rc) {
+        await ReelComment.findByIdAndDelete(itemId);
+      }
     }
     // itemType === "User" → use eject_user action instead
 
@@ -193,7 +201,7 @@ export const resolveReport = catchAsync(async (req, res) => {
       }
     }
 
-    const uid = offendingUser._id;
+    const uid = new mongoose.Types.ObjectId(String(offendingUser._id));
 
     // Remove all their Posts + associated content
     const userPosts = await Post.find({ author: uid });
@@ -214,12 +222,30 @@ export const resolveReport = catchAsync(async (req, res) => {
     }
 
     // Remove their interactions on others' content
-    await PostComment.deleteMany({ user: uid });
+    const userPostLikes = await PostLike.find({ user: uid });
+    for (const pl of userPostLikes) {
+      if (pl.post) {
+        await Post.findByIdAndUpdate(pl.post, { $inc: { likesCount: -1 } }).catch(() => { });
+      }
+    }
     await PostLike.deleteMany({ user: uid });
-    await ReelComment.deleteMany({ user: uid });
-    await ReelLike.deleteMany({ user: uid });
+
+    const userPostComments = await PostComment.find({ author: uid });
+    for (const pc of userPostComments) {
+      if (pc.post) {
+        await Post.findByIdAndUpdate(pc.post, { $inc: { commentsCount: -1 } }).catch(() => { });
+      }
+    }
+    await PostComment.deleteMany({ author: uid });
+
+    await ReelComment.deleteMany({ author: uid });
+    await ReelLike.deleteMany({ user: uid }); // legacy
+    await Reel.updateMany({ likes: uid }, { $pull: { likes: uid } });
+    await Reel.updateMany({ likes: String(uid) }, { $pull: { likes: String(uid) } });
 
     await Message.deleteMany({ sender: uid });
+    await Message.updateMany({ seenBy: uid }, { $pull: { seenBy: uid } });
+
     await Chat.deleteMany({ participants: uid });
     await Notification.deleteMany({ $or: [{ userId: uid }, { fromUserId: uid }] });
     await Appointment.deleteMany({ $or: [{ patient: uid }, { doctor: uid }] });
