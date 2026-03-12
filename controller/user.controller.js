@@ -1383,3 +1383,72 @@ export const updateLocation = catchAsync(async (req, res) => {
 /**
  * Note: registerFCMToken is now handled in fcm.controller.js
  */
+
+/**
+ * Block a user — adds them to the blockedUsers array
+ * POST /api/v1/user/block/:targetUserId
+ */
+export const blockUser = catchAsync(async (req, res) => {
+  const { targetUserId } = req.params;
+  const userId = req.user._id;
+
+  if (String(userId) === String(targetUserId)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "You cannot block yourself");
+  }
+
+  const targetExists = await User.exists({ _id: targetUserId });
+  if (!targetExists) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  await User.findByIdAndUpdate(userId, {
+    $addToSet: { blockedUsers: targetUserId },
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "User blocked successfully",
+    data: null,
+  });
+});
+
+/**
+ * Unblock a user — removes them from the blockedUsers array
+ * DELETE /api/v1/user/block/:targetUserId
+ */
+export const unblockUser = catchAsync(async (req, res) => {
+  const { targetUserId } = req.params;
+  const userId = req.user._id;
+
+  await User.findByIdAndUpdate(userId, {
+    $pull: { blockedUsers: new mongoose.Types.ObjectId(targetUserId) },
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "User unblocked successfully",
+    data: null,
+  });
+});
+
+/**
+ * Get list of users the current user has blocked
+ * GET /api/v1/user/blocked
+ */
+export const getBlockedUsers = catchAsync(async (req, res) => {
+  const user = await User.findById(req.user._id)
+    .select("blockedUsers")
+    .populate("blockedUsers", "fullName avatar username")
+    .lean();
+
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Blocked users fetched",
+    data: user.blockedUsers || [],
+  });
+});

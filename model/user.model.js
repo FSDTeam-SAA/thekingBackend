@@ -247,6 +247,9 @@ const userSchema = new Schema(
         text: { type: String },
       },
     ],
+
+    // Users that this user has blocked (their content is hidden from feed)
+    blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   },
   { timestamps: true },
 );

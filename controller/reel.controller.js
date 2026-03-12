@@ -146,10 +146,7 @@ export const getReels = catchAsync(async (req, res) => {
 });
 
 /**
- * Get all public reels (main feed)
- */
-/**
- * Get reels (main feed) with role-based visibility access
+ * ✅ UPDATED: Get all public reels (main feed) — filters out blocked users
  * - patient  -> public only
  * - doctor   -> public + private
  */
@@ -161,20 +158,33 @@ export const getAllReels = catchAsync(async (req, res) => {
   const userId = req.user?._id;
   const role = req.user?.role;
 
+  // Fetch caller's blocked list first for efficient filtering
+  const { User } = await import("../model/user.model.js");
+  const caller = await User.findById(userId).select("blockedUsers").lean();
+  const blockedIds = (caller?.blockedUsers || []).map((id) =>
+    new mongoose.Types.ObjectId(String(id))
+  );
+
   // Role-based visibility filter
   const visibilityFilter =
     role === "doctor"
       ? { visibility: { $in: ["public", "private"] } }
-      : { visibility: "public" }; // patient (default)
+      : { visibility: "public" };
+
+  // Build final query combining visibility + blocked user filter
+  const finalQuery =
+    blockedIds.length > 0
+      ? { ...visibilityFilter, author: { $nin: blockedIds } }
+      : visibilityFilter;
 
   const [reels, total] = await Promise.all([
-    Reel.find(visibilityFilter)
+    Reel.find(finalQuery)
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
       .populate("author", "fullName avatar role specialty")
       .lean(),
-    Reel.countDocuments(visibilityFilter),
+    Reel.countDocuments(finalQuery),
   ]);
 
   const reelsWithUserData = await Promise.all(
@@ -211,6 +221,7 @@ export const getAllReels = catchAsync(async (req, res) => {
     },
   });
 });
+
 
 /**
  * Get single reel by id

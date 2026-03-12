@@ -16,6 +16,9 @@ import {
   searchDoctors,
   getNearbyDoctors,
   deleteMyAccount,
+  blockUser,
+  unblockUser,
+  getBlockedUsers,
 } from "../controller/user.controller.js";
 import { registerFCMToken, removeFCMToken } from "../controller/fcm.controller.js";
 import { protect, isAdmin } from "../middleware/auth.middleware.js";
@@ -33,6 +36,11 @@ router.get("/me/dependents", protect, getMyDependents);
 router.post("/me/dependents", protect, addDependent);
 router.patch("/me/dependents/:dependentId", protect, updateDependent);
 router.delete("/me/dependents/:dependentId", protect, deleteDependent);
+
+// Block / Unblock routes
+router.get("/blocked", protect, getBlockedUsers);
+router.post("/block/:targetUserId", protect, blockUser);
+router.delete("/block/:targetUserId", protect, unblockUser);
 
 router.get("/role/doctor/nearby", getNearbyDoctors);
 router.get("/role/:role", getUsersByRole);

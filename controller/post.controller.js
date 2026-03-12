@@ -61,9 +61,7 @@ export const createPost = catchAsync(async (req, res) => {
 });
 
 /**
- * ✅ FIXED: Get ALL posts (public feed for doctors)
- * - Doctors can see all doctor posts
- * - Includes isLiked field for current user
+ * ✅ UPDATED: Get ALL posts (public feed) — filters out blocked users
  */
 export const getAllPosts = catchAsync(async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
@@ -71,7 +69,13 @@ export const getAllPosts = catchAsync(async (req, res) => {
   const limitNum = Number(limit) || 20;
   const userId = req.user._id;
 
-  // ✅ Only show posts from doctors + public visibility
+  // Fetch caller's blocked list first for efficient filtering
+  const { User } = await import("../model/user.model.js");
+  const caller = await User.findById(userId).select("blockedUsers").lean();
+  const blockedIds = (caller?.blockedUsers || []).map((id) =>
+    new mongoose.Types.ObjectId(String(id))
+  );
+
   const [posts, total] = await Promise.all([
     Post.aggregate([
       {
@@ -89,6 +93,10 @@ export const getAllPosts = catchAsync(async (req, res) => {
         $match: {
           "authorData.role": "doctor",
           visibility: "public",
+          // ✅ Exclude blocked authors from the feed
+          ...(blockedIds.length > 0 && {
+            "authorData._id": { $nin: blockedIds },
+          }),
         },
       },
       {
@@ -159,6 +167,7 @@ export const getAllPosts = catchAsync(async (req, res) => {
     },
   });
 });
+
 
 /**
  * Get single post
