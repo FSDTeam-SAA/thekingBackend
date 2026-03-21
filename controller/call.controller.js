@@ -87,7 +87,11 @@ export const initiateCall = catchAsync(async (req, res) => {
   try {
     const activeTokens = (receiver.fcmTokens || [])
       .filter((t) => t.isActive)
-      .map((t) => t.token);
+      .map((t) => ({
+        token: t.token,
+        platform: t.platform,
+        tokenType: t.tokenType || 'standard'
+      }));
 
     if (activeTokens.length > 0) {
       const { sendCallNotification } = await import("../utils/fcm.js");
@@ -151,10 +155,13 @@ export const endCall = catchAsync(async (req, res) => {
 
   // ✅ Send FCM cancel (background / terminated state)
   try {
-    const receiver = await User.findById(userId);
     const activeTokens = (receiver?.fcmTokens || [])
       .filter((t) => t.isActive)
-      .map((t) => t.token);
+      .map((t) => ({
+        token: t.token,
+        platform: t.platform,
+        tokenType: t.tokenType || 'standard'
+      }));
 
     if (activeTokens.length > 0) {
       const { sendCallCancelNotification } = await import("../utils/fcm.js");

@@ -356,107 +356,125 @@ export const validateFCMToken = (token) => {
 
 /**
  * 📞 Send Call Notification (Special high-priority notification for incoming calls)
- * This function sends a DATA-ONLY notification for Android (to trigger background handler)
- * and a full notification for iOS
- * @param {Array<string>} tokens - Array of FCM tokens
+ * @param {Array<Object>} tokenObjects - Array of { token, platform, tokenType }
  * @param {Object} callData - Call information
- * @param {string} callData.callerId - Caller's user ID
- * @param {string} callData.callerName - Caller's name
- * @param {string} callData.callerAvatar - Caller's avatar URL
- * @param {string} callData.chatId - Chat/Channel ID
- * @param {string} callData.callType - 'audio' or 'video'
  * @returns {Promise<Object>} - Result of notification sending
  */
-export const sendCallNotification = async (tokens, callData) => {
+export const sendCallNotification = async (tokenObjects, callData) => {
   try {
-    if (!tokens || !tokens.length) {
+    if (!tokenObjects || !tokenObjects.length) {
       console.log('⚠️ No tokens provided for call notification');
       return { success: false, message: 'No tokens provided' };
     }
 
     const { callerId, callerName, callerAvatar = '', chatId, callType = 'audio' } = callData;
-
-    // ✅ Use UUID from callData (from call.controller.js) if available, otherwise generate
     const callUuid = callData.uuid || uuidv4();
 
-    const message = {
-      // ✅ Data payload for Flutter background handler (triggers CallKit)
-      data: {
-        type: 'incoming_call',
-        callType: String(callType),
-        callerId: String(callerId),
-        callerName: String(callerName),
-        callerAvatar: String(callerAvatar),
-        chatId: String(chatId),
-        isVideo: callType === 'video' ? 'true' : 'false',
-        timestamp: new Date().toISOString(),
-        // ✅ Unique ID and duration for CallKit
-        uuid: callUuid,
-        duration: '30000', // 30 seconds timeout
-      },
+    // Group tokens by their processing requirements
+    const iosVoipTokens = tokenObjects
+      .filter(t => t.platform === 'ios' && t.tokenType === 'voip')
+      .map(t => t.token);
+    
+    const standardTokens = tokenObjects
+      .filter(t => !(t.platform === 'ios' && t.tokenType === 'voip'))
+      .map(t => t.token);
 
-      // ✅ CHANGED: Removed 'notification' block to ensure this is treated as a DATA message.
-      // This forces the 'onBackgroundMessage' handler to run on Android, which is REQUIRED
-      // to trigger the FlutterCallkitIncoming UI.
-      // If we include 'notification', the system displays a standard tray notification
-      // and DOES NOT run our background code until the user clicks it.
-      // notification: {
-      //   title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
-      //   body: `${callerName} is calling you...`,
-      // },
+    const results = [];
 
-      android: {
-        priority: 'high',
-        ttl: 30000,
-        // ✅ CHANGED: Removed 'android.notification' block as well.
-        // Even if root 'notification' is removed, this nested block can still trigger
-        // a system notification on some devices/SDK versions.
-        // We want PURE DATA message to ensure onBackgroundMessage triggers.
-        // notification: {
-        //   channelId: 'incoming_call_channel',
-        //   priority: 'max',
-        //   visibility: 'public',
-        //   importance: 'max',
-        //   sound: 'default',
-        //   defaultSound: true,
-        //   defaultVibrateTimings: true,
-        //   tag: `call_${callUuid}`,
-        // },
-      },
-
-      apns: {
-        payload: {
-          aps: {
-            alert: {
-              title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
-              body: `${callerName} is calling you...`,
+    // 1. Send to iOS VoIP Tokens (Requires special headers)
+    if (iosVoipTokens.length > 0) {
+      const voipMessage = {
+        data: {
+          type: 'incoming_call',
+          callType: String(callType),
+          callerId: String(callerId),
+          callerName: String(callerName),
+          callerAvatar: String(callerAvatar),
+          chatId: String(chatId),
+          isVideo: callType === 'video' ? 'true' : 'false',
+          timestamp: new Date().toISOString(),
+          uuid: callUuid,
+          duration: '30000',
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
+                body: `${callerName} is calling you...`,
+              },
+              sound: 'default',
+              'content-available': 1,
+              'mutable-content': 1,
+              category: 'INCOMING_CALL',
+              'interruption-level': 'time-sensitive',
             },
-            sound: 'default',
-            'content-available': 1,
-            'mutable-content': 1,
-            category: 'INCOMING_CALL',
-            'interruption-level': 'time-sensitive',
+          },
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'voip', // ✅ MANDATORY for VoIP pushes
+            'apns-topic': process.env.IOS_BUNDLE_ID ? `${process.env.IOS_BUNDLE_ID}.voip` : undefined, // Often required for VoIP
           },
         },
-        headers: {
-          'apns-priority': '10',
+        tokens: iosVoipTokens,
+      };
+      
+      const voipResponse = await admin.messaging().sendEachForMulticast(voipMessage);
+      console.log(`📞 VoIP Call notification sent to ${iosVoipTokens.length} iOS devices`);
+      results.push(voipResponse);
+    }
+
+    // 2. Send to Standard Tokens (Android + Standard iOS FCM)
+    if (standardTokens.length > 0) {
+      const standardMessage = {
+        data: {
+          type: 'incoming_call',
+          callType: String(callType),
+          callerId: String(callerId),
+          callerName: String(callerName),
+          callerAvatar: String(callerAvatar),
+          chatId: String(chatId),
+          isVideo: callType === 'video' ? 'true' : 'false',
+          timestamp: new Date().toISOString(),
+          uuid: callUuid,
+          duration: '30000',
         },
-      },
+        android: {
+          priority: 'high',
+          ttl: 30000,
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
+                body: `${callerName} is calling you...`,
+              },
+              sound: 'default',
+              'content-available': 1,
+              'mutable-content': 1,
+              'interruption-level': 'time-sensitive',
+            },
+          },
+          headers: {
+            'apns-priority': '10',
+          },
+        },
+        tokens: standardTokens,
+      };
+      
+      const standardResponse = await admin.messaging().sendEachForMulticast(standardMessage);
+      console.log(`📞 Standard Call notification sent to ${standardTokens.length} devices`);
+      results.push(standardResponse);
+    }
 
-      tokens: tokens,
-    };
-
-    const response = await admin.messaging().sendEachForMulticast(message);
-
-    console.log(`📞 Call notification sent:`, {
-      successCount: response.successCount,
-      failureCount: response.failureCount,
-    });
+    const successCount = results.reduce((acc, r) => acc + (r.successCount || 0), 0);
+    const failureCount = results.reduce((acc, r) => acc + (r.failureCount || 0), 0);
 
     return {
       success: true,
-      successCount: response.successCount,
-      failureCount: response.failureCount,
+      successCount,
+      failureCount,
     };
   } catch (error) {
     console.error('❌ Error sending call notification:', error);
@@ -466,12 +484,14 @@ export const sendCallNotification = async (tokens, callData) => {
 
 /**
  * 📴 Send Call Cancel/End Notification
- * @param {Array<string>} tokens - Array of FCM tokens
+ * @param {Array<Object>} tokenObjects - Array of { token, platform, tokenType }
  * @param {Object} data - Call data
  */
-export const sendCallCancelNotification = async (tokens, data) => {
+export const sendCallCancelNotification = async (tokenObjects, data) => {
   try {
-    if (!tokens || !tokens.length) return;
+    if (!tokenObjects || !tokenObjects.length) return;
+
+    const tokens = tokenObjects.map(t => t.token);
 
     const message = {
       data: {

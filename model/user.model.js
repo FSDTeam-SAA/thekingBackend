@@ -230,6 +230,11 @@ const userSchema = new Schema(
           enum: ["android", "ios", "web"],
           required: true,
         },
+        tokenType: {
+          type: String,
+          enum: ["standard", "voip"],
+          default: "standard",
+        },
         createdAt: { type: Date, default: Date.now },
         isActive: { type: Boolean, default: true },
       },

@@ -7,7 +7,7 @@ import { User } from "../model/user.model.js";
  */
 export const registerFCMToken = async (req, res) => {
   try {
-    const { token, platform } = req.body;
+    const { token, platform, tokenType = 'standard' } = req.body;
     const userId = req.user._id;
 
     // Validate input
@@ -34,6 +34,14 @@ export const registerFCMToken = async (req, res) => {
       });
     }
 
+    // Validate tokenType
+    if (!['standard', 'voip'].includes(tokenType.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tokenType. Must be: standard or voip'
+      });
+    }
+
     // Find user
     const user = await User.findById(userId);
     if (!user) {
@@ -50,7 +58,7 @@ export const registerFCMToken = async (req, res) => {
 
     // Check if token already exists
     const existingTokenIndex = user.fcmTokens.findIndex(
-      fcmToken => fcmToken.token === token && fcmToken.isActive === true
+      fcmToken => fcmToken.token === token && fcmToken.tokenType === tokenType.toLowerCase() && fcmToken.isActive === true
     );
 
     if (existingTokenIndex !== -1) {
@@ -59,15 +67,16 @@ export const registerFCMToken = async (req, res) => {
       user.fcmTokens[existingTokenIndex].createdAt = new Date();
       user.fcmTokens[existingTokenIndex].isActive = true;
     } else {
-      // Remove any inactive tokens for the same platform (cleanup)
+      // Remove any inactive tokens for the same platform and type (cleanup)
       user.fcmTokens = user.fcmTokens.filter(
-        fcmToken => !(fcmToken.platform === platform.toLowerCase() && !fcmToken.isActive)
+        fcmToken => !(fcmToken.platform === platform.toLowerCase() && fcmToken.tokenType === tokenType.toLowerCase() && !fcmToken.isActive)
       );
 
       // Add new token
       user.fcmTokens.push({
         token,
         platform: platform.toLowerCase(),
+        tokenType: tokenType.toLowerCase(),
         createdAt: new Date(),
         isActive: true
       });
