@@ -222,23 +222,14 @@ const userSchema = new Schema(
     refreshToken: { type: String, default: "" },
 
     // FCM device tokens for push notifications
-    fcmTokens: [
-      {
-        token: { type: String, required: true },
-        platform: {
-          type: String,
-          enum: ["android", "ios", "web"],
-          required: true,
-        },
-        tokenType: {
-          type: String,
-          enum: ["standard", "voip"],
-          default: "standard",
-        },
-        createdAt: { type: Date, default: Date.now },
-        isActive: { type: Boolean, default: true },
-      },
-    ],
+    // Unified device tokens (Hybrid Approach)
+    fcmToken: { type: String, default: null, trim: true }, // For Android & iOS Standard Notifications
+    voipToken: { type: String, default: null, trim: true }, // For iOS direct APNs calls
+    devicePlatform: { 
+      type: String, 
+      enum: ["android", "ios", "web", null], 
+      default: null 
+    },
 
     review: [
       {

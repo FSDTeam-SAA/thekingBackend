@@ -66,6 +66,10 @@ web_modules/
 .yarn-integrity
 
 # dotenv environment variable files
+# Certificates & Secrets
+certs/*.p12
+*.p12
+*.p8
 .env
 # .env.*
 # !.env.example

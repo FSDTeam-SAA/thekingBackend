@@ -1,48 +1,29 @@
-import { validateFCMToken } from "../utils/fcm.js";
 import { User } from "../model/user.model.js";
 
 /**
- * Register/update FCM token for a user
- * Expects: { token: string, platform: string }
+ * Register/update device tokens for a user (Hybrid Approach)
+ * POST /api/v1/user/fcm-token
+ * Receives: { fcmToken?: string, voipToken?: string, platform: string }
  */
 export const registerFCMToken = async (req, res) => {
   try {
-    const { token, platform, tokenType = 'standard' } = req.body;
+    const { fcmToken, voipToken, platform } = req.body;
     const userId = req.user._id;
 
-    // Validate input
-    if (!token || !platform) {
+    if (!fcmToken && !voipToken) {
       return res.status(400).json({
         success: false,
-        message: 'FCM token and platform are required'
+        message: 'At least one token (fcmToken or voipToken) is required'
       });
     }
 
-    // Validate platform
-    if (!['android', 'ios', 'web'].includes(platform.toLowerCase())) {
+    if (!platform || !['android', 'ios', 'web'].includes(platform.toLowerCase())) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid platform. Must be: android, ios, or web'
+        message: 'Valid platform (android, ios, or web) is required'
       });
     }
 
-    // Validate token format
-    if (!validateFCMToken(token)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid FCM token format'
-      });
-    }
-
-    // Validate tokenType
-    if (!['standard', 'voip'].includes(tokenType.toLowerCase())) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid tokenType. Must be: standard or voip'
-      });
-    }
-
-    // Find user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
@@ -51,211 +32,76 @@ export const registerFCMToken = async (req, res) => {
       });
     }
 
-    // Initialize fcmTokens array if it doesn't exist
-    if (!user.fcmTokens) {
-      user.fcmTokens = [];
-    }
-
-    // Check if token already exists
-    const existingTokenIndex = user.fcmTokens.findIndex(
-      fcmToken => fcmToken.token === token && fcmToken.tokenType === tokenType.toLowerCase() && fcmToken.isActive === true
-    );
-
-    if (existingTokenIndex !== -1) {
-      // Token exists, update its info
-      user.fcmTokens[existingTokenIndex].platform = platform.toLowerCase();
-      user.fcmTokens[existingTokenIndex].createdAt = new Date();
-      user.fcmTokens[existingTokenIndex].isActive = true;
-    } else {
-      // Remove any inactive tokens for the same platform and type (cleanup)
-      user.fcmTokens = user.fcmTokens.filter(
-        fcmToken => !(fcmToken.platform === platform.toLowerCase() && fcmToken.tokenType === tokenType.toLowerCase() && !fcmToken.isActive)
-      );
-
-      // Add new token
-      user.fcmTokens.push({
-        token,
-        platform: platform.toLowerCase(),
-        tokenType: tokenType.toLowerCase(),
-        createdAt: new Date(),
-        isActive: true
-      });
-    }
-
-    // Limit the number of tokens per user (keep latest 5 per platform)
-    const maxTokensPerPlatform = 5;
-    const tokensByPlatform = {};
-    
-    user.fcmTokens.forEach(fcmToken => {
-      if (!tokensByPlatform[fcmToken.platform]) {
-        tokensByPlatform[fcmToken.platform] = [];
-      }
-      tokensByPlatform[fcmToken.platform].push(fcmToken);
-    });
-
-    // Keep only the most recent tokens for each platform
-    user.fcmTokens = [];
-    Object.keys(tokensByPlatform).forEach(platform => {
-      const sortedTokens = tokensByPlatform[platform]
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        .slice(0, maxTokensPerPlatform);
-      
-      user.fcmTokens.push(...sortedTokens);
-    });
+    // Update tokens
+    if (fcmToken) user.fcmToken = fcmToken;
+    if (voipToken) user.voipToken = voipToken;
+    user.devicePlatform = platform.toLowerCase();
 
     await user.save();
 
-    res.status(200).json({
+    console.log(`✅ Tokens registered for user ${userId} on ${platform}`);
+
+    return res.status(200).json({
       success: true,
-      message: 'FCM token registered successfully',
-      data: {
-        tokenCount: user.fcmTokens.length,
-        platforms: [...new Set(user.fcmTokens.map(t => t.platform))]
-      }
+      message: 'Tokens registered successfully'
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('❌ Error registering tokens:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Failed to register FCM token',
+      message: 'Internal server error',
       error: error.message
     });
   }
 };
 
 /**
- * Remove FCM token for a user
- * Expects: { token: string }
+ * Remove/Clear tokens for a user (on logout)
  */
 export const removeFCMToken = async (req, res) => {
   try {
-    const { token } = req.body;
     const userId = req.user._id;
+    
+    await User.findByIdAndUpdate(userId, {
+      fcmToken: null,
+      voipToken: null,
+      devicePlatform: null
+    });
 
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        message: 'FCM token is required'
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Remove the token (set isActive to false instead of removing for tracking)
-    if (user.fcmTokens && user.fcmTokens.length > 0) {
-      const tokenIndex = user.fcmTokens.findIndex(
-        fcmToken => fcmToken.token === token
-      );
-
-      if (tokenIndex !== -1) {
-        user.fcmTokens[tokenIndex].isActive = false;
-        await user.save();
-        
-        return res.status(200).json({
-          success: true,
-          message: 'FCM token removed successfully'
-        });
-      }
-    }
-
-    res.status(404).json({
-      success: false,
-      message: 'FCM token not found'
+    return res.status(200).json({
+      success: true,
+      message: 'Tokens cleared successfully'
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('❌ Error clearing tokens:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Failed to remove FCM token',
+      message: 'Internal server error',
       error: error.message
     });
   }
 };
 
 /**
- * Get user's FCM tokens
+ * Get current active tokens for the user
  */
 export const getFCMTokens = async (req, res) => {
   try {
     const userId = req.user._id;
-
-    const user = await User.findById(userId).select('fcmTokens');
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Return only active tokens
-    const activeTokens = user.fcmTokens ? 
-      user.fcmTokens.filter(token => token.isActive) : [];
-
-    res.status(200).json({
+    const user = await User.findById(userId).select('fcmToken voipToken devicePlatform');
+    
+    return res.status(200).json({
       success: true,
       data: {
-        tokens: activeTokens,
-        count: activeTokens.length,
-        platforms: [...new Set(activeTokens.map(t => t.platform))]
+        fcmToken: user.fcmToken,
+        voipToken: user.voipToken,
+        platform: user.devicePlatform
       }
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: 'Failed to get FCM tokens',
-      error: error.message
-    });
-  }
-};
-
-/**
- * Clean up all inactive FCM tokens for a user
- */
-export const cleanupFCMTokens = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    if (user.fcmTokens && user.fcmTokens.length > 0) {
-      // Remove all inactive tokens
-      const activeTokens = user.fcmTokens.filter(token => token.isActive);
-      user.fcmTokens = activeTokens;
-      
-      await user.save();
-      
-      const removedCount = user.fcmTokens.length - activeTokens.length;
-      
-      res.status(200).json({
-        success: true,
-        message: `Cleaned up ${removedCount} inactive tokens`,
-        data: {
-          remainingTokens: activeTokens.length
-        }
-      });
-    } else {
-      res.status(200).json({
-        success: true,
-        message: 'No tokens to clean up',
-        data: {
-          remainingTokens: 0
-        }
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to clean up FCM tokens',
+      message: 'Internal server error',
       error: error.message
     });
   }

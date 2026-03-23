@@ -1,0 +1,181 @@
+import admin from 'firebase-admin';
+import apn from 'apn';
+import { v4 as uuidv4 } from 'uuid';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Firebase Admin initialization
+let firebaseApp = null;
+let apnProvider = null;
+
+/**
+ * Initialize All Notification Providers
+ */
+export const initializeNotifications = () => {
+  // 1. Initialize Firebase
+  if (!admin.apps.length) {
+    if (process.env.FIREBASE_PROJECT_ID) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        }),
+      });
+      console.log('✅ Firebase Admin SDK initialized');
+    }
+  }
+
+  // 2. Initialize Direct APNs (.p12 Hybrid Approach)
+  if (!apnProvider) {
+    const certPath = process.env.APNS_VOIP_CERT_PATH || '/Users/Yeasin/Downloads/voip_auth.p12';
+    
+    const options = {
+      pfx: certPath,
+      passphrase: process.env.APNS_VOIP_PASSPHRASE || '',
+      production: process.env.NODE_ENV === 'production',
+    };
+
+    try {
+      apnProvider = new apn.Provider(options);
+      console.log('✅ Direct APNs Provider initialized using .p12');
+    } catch (error) {
+      console.error('❌ Direct APNs initialization error:', error);
+    }
+  }
+};
+
+/**
+ * 📞 Send Call Notification (Hybrid Approach)
+ * - Android: Node.js -> Firebase -> Android
+ * - iOS: Node.js -> Direct APNs -> iOS (CallKit)
+ */
+export const sendCallNotification = async (receiver, callData) => {
+  const { callerName, callType = 'audio' } = callData;
+  const callUuid = callData.uuid || uuidv4();
+
+  // 1. iOS PATHWAY (Direct to Apple)
+  if (receiver.devicePlatform === 'ios' && receiver.voipToken) {
+    try {
+      const notification = new apn.Notification();
+      notification.expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+      notification.priority = 10;
+      notification.pushType = 'voip';
+      notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
+      
+      notification.payload = {
+        ...callData,
+        uuid: callUuid,
+        type: 'incoming_call',
+        timestamp: new Date().toISOString(),
+      };
+
+      // Mandatory alert for visibility
+      notification.alert = {
+        title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
+        body: `${callerName} is calling you...`,
+      };
+
+      const result = await apnProvider.send(notification, receiver.voipToken);
+      console.log('📱 Direct APNs Call Result:', result.sent.length ? 'Sent' : 'Failed');
+      return { success: result.sent.length > 0, path: 'apns' };
+    } catch (error) {
+      console.error('❌ APNs sending error:', error);
+    }
+  }
+
+  // 2. ANDROID / FALLBACK PATHWAY (Firebase)
+  if (receiver.fcmToken) {
+    try {
+      const message = {
+        data: {
+          type: 'incoming_call',
+          callType: String(callType),
+          callerName: String(callerName),
+          uuid: callUuid,
+          ...Object.fromEntries(Object.entries(callData).map(([k, v]) => [k, String(v)])),
+        },
+        android: { priority: 'high', ttl: 30000 },
+        token: receiver.fcmToken,
+      };
+
+      const response = await admin.messaging().send(message);
+      console.log('📱 Firebase Call Result: Sent', response);
+      return { success: true, path: 'firebase' };
+    } catch (error) {
+      console.error('❌ Firebase sending error:', error);
+    }
+  }
+
+  return { success: false, message: 'No valid tokens found' };
+};
+
+/**
+ * 💬 Send Standard Notification (Firebase for All)
+ */
+export const sendStandardNotification = async (token, notification, data = {}) => {
+  if (!token) return;
+
+  const message = {
+    notification: {
+      title: notification.title,
+      body: notification.body,
+    },
+    data: {
+      ...data,
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    },
+    token: token,
+  };
+
+  try {
+    await admin.messaging().send(message);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Firebase Standard Notification Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+/**
+ * 📴 Send Call Cancel/End Notification
+ */
+export const sendCallCancelNotification = async (receiver, data) => {
+  const { chatId, uuid } = data;
+
+  // 1. iOS PATHWAY (Direct APNs)
+  if (receiver.devicePlatform === 'ios' && receiver.voipToken) {
+    try {
+      const notification = new apn.Notification();
+      notification.pushType = 'voip';
+      notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
+      notification.priority = 10;
+      notification.payload = {
+        type: 'cancel_call',
+        chatId: String(chatId),
+        uuid: String(uuid || ''),
+      };
+      
+      await apnProvider.send(notification, receiver.voipToken);
+    } catch (error) {
+      console.error('❌ APNs Cancel Error:', error);
+    }
+  }
+
+  // 2. ANDROID / FALLBACK (Firebase)
+  if (receiver.fcmToken) {
+    try {
+      const message = {
+        data: {
+          type: 'cancel_call',
+          chatId: String(chatId),
+          uuid: String(uuid || ''),
+        },
+        token: receiver.fcmToken,
+      };
+      await admin.messaging().send(message);
+    } catch (error) {
+      console.error('❌ Firebase Cancel Error:', error);
+    }
+  }
+};

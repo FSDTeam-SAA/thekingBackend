@@ -17,6 +17,7 @@
   "dependencies": {
     "agora-access-token": "^2.0.4",
     "agora-token": "^2.0.5",
+    "apn": "^2.2.0",
     "bcryptjs": "^3.0.2",
     "braintree": "^3.31.0",
     "chalk": "^4.1.2",

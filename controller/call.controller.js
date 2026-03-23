@@ -83,34 +83,21 @@ export const initiateCall = catchAsync(async (req, res) => {
   console.log(`📞 Call emitted to receiver rooms: chat_${receiverId} & ${receiverId}`);
   console.log(`   UUID: ${callUuid} | Type: ${callType}`);
 
-  // ✅ Send FCM with same UUID (background / terminated state)
+  // ✅ Send Notification via Unified Service (Hybrid Approach)
   try {
-    const activeTokens = (receiver.fcmTokens || [])
-      .filter((t) => t.isActive)
-      .map((t) => ({
-        token: t.token,
-        platform: t.platform,
-        tokenType: t.tokenType || 'standard'
-      }));
-
-    if (activeTokens.length > 0) {
-      const { sendCallNotification } = await import("../utils/fcm.js");
-      await sendCallNotification(activeTokens, {
-        callerId: String(callerId),
-        callerName: req.user.fullName,
-        callerAvatar: req.user.avatar?.url || "",
-        chatId: String(actualChatId),
-        callType: callType,
-        uuid: callUuid,        // ✅ Same UUID — no double CallKit
-        timestamp: callTimestamp,
-      });
-      console.log(`✅ Call FCM sent to ${activeTokens.length} device(s)`);
-    } else {
-      console.log("⚠️ Receiver has no active FCM tokens");
-    }
-  } catch (fcmError) {
-    console.error("❌ FCM call notification failed:", fcmError);
-    // Don't throw — socket already delivered
+    const { sendCallNotification } = await import("../utils/notification_service.js");
+    await sendCallNotification(receiver, {
+      callerId: String(callerId),
+      callerName: req.user.fullName,
+      callerAvatar: req.user.avatar?.url || "",
+      chatId: String(actualChatId),
+      callType: callType,
+      uuid: callUuid,
+      timestamp: callTimestamp,
+    });
+    console.log(`✅ Call notification routed via Unified Service for user ${receiverId}`);
+  } catch (error) {
+    console.error("❌ Notification routing failed:", error);
   }
 
   sendResponse(res, {
@@ -153,23 +140,16 @@ export const endCall = catchAsync(async (req, res) => {
 
   console.log(`📴 Call end emitted to: chat_${userId} & ${userId}`);
 
-  // ✅ Send FCM cancel (background / terminated state)
+  // ✅ Send Cancel Notification via Unified Service
   try {
-    const activeTokens = (receiver?.fcmTokens || [])
-      .filter((t) => t.isActive)
-      .map((t) => ({
-        token: t.token,
-        platform: t.platform,
-        tokenType: t.tokenType || 'standard'
-      }));
-
-    if (activeTokens.length > 0) {
-      const { sendCallCancelNotification } = await import("../utils/fcm.js");
-      await sendCallCancelNotification(activeTokens, { chatId: String(chatId), uuid: uuid || '' });
-      console.log(`📴 Call cancel FCM sent to ${activeTokens.length} device(s) (UUID: ${uuid || 'none'})`);
+    const receiver = await User.findById(userId);
+    if (receiver) {
+      const { sendCallCancelNotification } = await import("../utils/notification_service.js");
+      await sendCallCancelNotification(receiver, { chatId: String(chatId), uuid: uuid || '' });
+      console.log(`📴 Call cancel routed via Unified Service for user ${userId}`);
     }
   } catch (error) {
-    console.error("❌ FCM cancel notification failed:", error);
+    console.error("❌ Cancel routing failed:", error);
   }
 
   sendResponse(res, {

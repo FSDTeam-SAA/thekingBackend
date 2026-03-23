@@ -374,7 +374,7 @@ export const sendCallNotification = async (tokenObjects, callData) => {
     const iosVoipTokens = tokenObjects
       .filter(t => t.platform === 'ios' && t.tokenType === 'voip')
       .map(t => t.token);
-    
+
     const standardTokens = tokenObjects
       .filter(t => !(t.platform === 'ios' && t.tokenType === 'voip'))
       .map(t => t.token);
@@ -418,7 +418,7 @@ export const sendCallNotification = async (tokenObjects, callData) => {
         },
         tokens: iosVoipTokens,
       };
-      
+
       const voipResponse = await admin.messaging().sendEachForMulticast(voipMessage);
       console.log(`📞 VoIP Call notification sent to ${iosVoipTokens.length} iOS devices`);
       results.push(voipResponse);
@@ -462,7 +462,7 @@ export const sendCallNotification = async (tokenObjects, callData) => {
         },
         tokens: standardTokens,
       };
-      
+
       const standardResponse = await admin.messaging().sendEachForMulticast(standardMessage);
       console.log(`📞 Standard Call notification sent to ${standardTokens.length} devices`);
       results.push(standardResponse);
@@ -484,14 +484,12 @@ export const sendCallNotification = async (tokenObjects, callData) => {
 
 /**
  * 📴 Send Call Cancel/End Notification
- * @param {Array<Object>} tokenObjects - Array of { token, platform, tokenType }
+ * @param {Array<string>} tokens - Array of FCM tokens
  * @param {Object} data - Call data
  */
-export const sendCallCancelNotification = async (tokenObjects, data) => {
+export const sendCallCancelNotification = async (tokens, data) => {
   try {
-    if (!tokenObjects || !tokenObjects.length) return;
-
-    const tokens = tokenObjects.map(t => t.token);
+    if (!tokens || !tokens.length) return;
 
     const message = {
       data: {

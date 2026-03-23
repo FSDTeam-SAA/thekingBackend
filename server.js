@@ -1,5 +1,9 @@
 import "dotenv/config";
 import express from "express";
+import { initializeNotifications } from "./utils/notification_service.js";
+
+// Initialize Hybrid Notifications
+initializeNotifications();
 import cors from "cors";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
