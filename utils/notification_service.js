@@ -2,12 +2,36 @@ import admin from 'firebase-admin';
 import apn from 'apn';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
 
 // Firebase Admin initialization
 let firebaseApp = null;
 let apnProvider = null;
+const moduleDir = path.dirname(new URL(import.meta.url).pathname);
+
+const getFirebaseCredential = () => {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      return admin.credential.cert(serviceAccount);
+    } catch (error) {
+      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', error);
+    }
+  }
+
+  if (process.env.FIREBASE_PROJECT_ID) {
+    return admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    });
+  }
+
+  return null;
+};
 
 /**
  * Initialize All Notification Providers
@@ -15,21 +39,35 @@ let apnProvider = null;
 export const initializeNotifications = () => {
   // 1. Initialize Firebase
   if (!admin.apps.length) {
-    if (process.env.FIREBASE_PROJECT_ID) {
+    const firebaseCredential = getFirebaseCredential();
+    if (firebaseCredential) {
       admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        }),
+        credential: firebaseCredential,
       });
       console.log('✅ Firebase Admin SDK initialized');
+    } else {
+      console.warn('⚠️ Firebase Admin SDK not initialized: missing Firebase credentials');
     }
   }
 
   // 2. Initialize Direct APNs (.p12 Hybrid Approach)
   if (!apnProvider) {
-    const certPath = process.env.APNS_VOIP_CERT_PATH || '/Users/Yeasin/Downloads/voip_auth.p12';
+    const rawCertPath =
+      process.env.APNS_VOIP_CERT_PATH || '/Users/Yeasin/Downloads/voip_auth.p12';
+    const candidatePaths = path.isAbsolute(rawCertPath)
+      ? [rawCertPath]
+      : [
+          path.resolve(process.cwd(), rawCertPath),
+          path.resolve(moduleDir, '..', rawCertPath),
+        ];
+    const certPath = candidatePaths.find((candidate) => fs.existsSync(candidate));
+
+    if (!certPath) {
+      console.error(
+        `❌ APNs VoIP certificate not found. Checked: ${candidatePaths.join(', ')}`,
+      );
+      return;
+    }
     
     const options = {
       pfx: certPath,

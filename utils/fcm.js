@@ -4,6 +4,27 @@ import { v4 as uuidv4 } from 'uuid';
 // Firebase Admin initialization
 let firebaseApp = null;
 
+const getFirebaseCredential = () => {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      return admin.credential.cert(serviceAccount);
+    } catch (error) {
+      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', error);
+    }
+  }
+
+  if (!process.env.FIREBASE_PROJECT_ID) {
+    return null;
+  }
+
+  return admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  });
+};
+
 /**
  * Initialize Firebase Admin SDK
  */
@@ -11,18 +32,15 @@ export const initializeFirebase = () => {
   try {
     // Check if Firebase is already initialized
     if (!admin.apps.length) {
-      // Check if required environment variables are set
-      if (!process.env.FIREBASE_PROJECT_ID) {
-        throw new Error('FIREBASE_PROJECT_ID is required in environment variables');
+      const credential = getFirebaseCredential();
+      if (!credential) {
+        throw new Error(
+          'Firebase credential missing. Set FIREBASE_SERVICE_ACCOUNT or FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY',
+        );
       }
 
-      // Use simplified initialization without service account for testing
       firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        }),
+        credential,
         projectId: process.env.FIREBASE_PROJECT_ID,
         databaseURL: process.env.FIREBASE_DATABASE_URL,
       });
