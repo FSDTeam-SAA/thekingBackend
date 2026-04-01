@@ -54,22 +54,29 @@ export const initializeNotifications = () => {
 export const sendCallNotification = async (receiver, callData) => {
   const { callerName, callType = 'audio' } = callData;
   const callUuid = callData.uuid || uuidv4();
+  const normalizedPayload = {
+    ...callData,
+    id: callUuid,
+    uuid: callUuid,
+    type: 'incoming_call',
+    callerName,
+    nameCaller: callerName,
+    handle: callType === 'video' ? 'Video Call' : 'Audio Call',
+    isVideo: callType === 'video',
+    timestamp: callData.timestamp || new Date().toISOString(),
+  };
 
   // 1. iOS PATHWAY (Direct to Apple)
-  if (receiver.devicePlatform === 'ios' && receiver.voipToken) {
+  if (receiver.devicePlatform === 'ios' && receiver.voipToken && apnProvider) {
     try {
       const notification = new apn.Notification();
       notification.expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour
       notification.priority = 10;
       notification.pushType = 'voip';
       notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
-      
-      notification.payload = {
-        ...callData,
-        uuid: callUuid,
-        type: 'incoming_call',
-        timestamp: new Date().toISOString(),
-      };
+      notification.contentAvailable = 1;
+      notification.mutableContent = 1;
+      notification.payload = normalizedPayload;
 
       // Mandatory alert for visibility
       notification.alert = {
@@ -90,11 +97,10 @@ export const sendCallNotification = async (receiver, callData) => {
     try {
       const message = {
         data: {
-          type: 'incoming_call',
+          ...Object.fromEntries(
+            Object.entries(normalizedPayload).map(([k, v]) => [k, String(v)])
+          ),
           callType: String(callType),
-          callerName: String(callerName),
-          uuid: callUuid,
-          ...Object.fromEntries(Object.entries(callData).map(([k, v]) => [k, String(v)])),
         },
         android: { priority: 'high', ttl: 30000 },
         token: receiver.fcmToken,
@@ -144,12 +150,13 @@ export const sendCallCancelNotification = async (receiver, data) => {
   const { chatId, uuid } = data;
 
   // 1. iOS PATHWAY (Direct APNs)
-  if (receiver.devicePlatform === 'ios' && receiver.voipToken) {
+  if (receiver.devicePlatform === 'ios' && receiver.voipToken && apnProvider) {
     try {
       const notification = new apn.Notification();
       notification.pushType = 'voip';
       notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
       notification.priority = 10;
+      notification.contentAvailable = 1;
       notification.payload = {
         type: 'cancel_call',
         chatId: String(chatId),

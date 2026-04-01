@@ -166,11 +166,14 @@ export const sendSingleFCMNotification = async (token, notification, data = {}) 
  */
 export const sendFCMNotificationToUsers = async (userIds, notification, data = {}, UserModel) => {
   try {
-    // Find users and their active FCM tokens
+    // Support both the legacy fcmTokens[] schema and the current single fcmToken schema.
     const users = await UserModel.find({
       _id: { $in: userIds },
-      'fcmTokens.isActive': true
-    }).select('fcmTokens');
+      $or: [
+        { 'fcmTokens.isActive': true },
+        { fcmToken: { $exists: true, $ne: null } },
+      ],
+    }).select('fcmTokens fcmToken devicePlatform');
 
     if (!users || !users.length) {
       console.log('⚠️ No users found with active FCM tokens');
@@ -188,6 +191,13 @@ export const sendFCMNotificationToUsers = async (userIds, notification, data = {
               platform: fcmToken.platform
             });
           }
+        });
+      }
+
+      if (user.fcmToken && typeof user.fcmToken === 'string') {
+        tokenMap.set(user.fcmToken, {
+          userId: user._id.toString(),
+          platform: user.devicePlatform || 'unknown',
         });
       }
     });
@@ -239,10 +249,16 @@ export const cleanupInactiveTokens = async (tokens, UserModel) => {
   try {
     console.log(`🧹 Cleaning up ${tokens.length} inactive FCM tokens`);
 
-    await UserModel.updateMany(
-      { 'fcmTokens.token': { $in: tokens } },
-      { $pull: { fcmTokens: { token: { $in: tokens } } } }
-    );
+    await Promise.all([
+      UserModel.updateMany(
+        { 'fcmTokens.token': { $in: tokens } },
+        { $pull: { fcmTokens: { token: { $in: tokens } } } }
+      ),
+      UserModel.updateMany(
+        { fcmToken: { $in: tokens } },
+        { $set: { fcmToken: null } }
+      ),
+    ]);
 
     console.log('✅ Inactive tokens cleaned up successfully');
   } catch (error) {
