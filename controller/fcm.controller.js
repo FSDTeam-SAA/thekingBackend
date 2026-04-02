@@ -24,6 +24,14 @@ export const registerFCMToken = async (req, res) => {
       });
     }
 
+    //  Uniqueness Fix: Remove these tokens from ANY other user before saving to this user
+    if (fcmToken) {
+      await User.updateMany({ fcmToken: fcmToken }, { fcmToken: null });
+    }
+    if (voipToken) {
+      await User.updateMany({ voipToken: voipToken }, { voipToken: null });
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
