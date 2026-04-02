@@ -116,11 +116,9 @@ export const sendCallNotification = async (receiver, callData) => {
       notification.mutableContent = 1;
       notification.payload = normalizedPayload;
 
-      // Mandatory alert for visibility
-      notification.alert = {
-        title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
-        body: `${callerName} is calling you...`,
-      };
+      // For VoIP pushes (PushKit), Apple strictly forbids standard 'alert', 'sound', or 'badge' keys.
+      // The push must be entirely silent and handled natively via CallKit.
+      // notification.alert = ... (REMOVED to prevent Apple rejection)
 
       const result = await apnProvider.send(notification, receiver.voipToken);
       console.log('📱 Direct APNs Call Result:', result.sent.length ? 'Sent' : 'Failed');

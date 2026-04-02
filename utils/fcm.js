@@ -433,11 +433,6 @@ export const sendCallNotification = async (tokenObjects, callData) => {
         apns: {
           payload: {
             aps: {
-              alert: {
-                title: callType === 'video' ? '📹 Incoming Video Call' : '📞 Incoming Call',
-                body: `${callerName} is calling you...`,
-              },
-              sound: 'default',
               'content-available': 1,
               'mutable-content': 1,
               category: 'INCOMING_CALL',
