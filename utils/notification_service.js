@@ -108,7 +108,7 @@ export const sendCallNotification = async (receiver, callData) => {
   if (receiver.devicePlatform === 'ios' && receiver.voipToken && apnProvider) {
     try {
       const notification = new apn.Notification();
-      notification.expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+      notification.expiry = Math.floor(Date.now() / 1000) + 30; // 30 SECONDS! Prevent old calls from ringing.
       notification.priority = 10;
       notification.pushType = 'voip';
       notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
@@ -138,7 +138,13 @@ export const sendCallNotification = async (receiver, callData) => {
           ),
           callType: String(callType),
         },
-        android: { priority: 'high', ttl: 30000 },
+        android: { priority: 'high', ttl: 30000 }, // 30 seconds
+        apns: {
+          headers: {
+            'apns-expiration': String(Math.floor(Date.now() / 1000) + 30), // Prevent stale FCM delivery to iOS
+            'apns-priority': '10',
+          },
+        },
         token: receiver.fcmToken,
       };
 
