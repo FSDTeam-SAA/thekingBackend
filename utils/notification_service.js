@@ -97,6 +97,8 @@ export const sendCallNotification = async (receiver, callData) => {
     id: callUuid,
     uuid: callUuid,
     type: 'incoming_call',
+    callerId: callData.callerId, // Keep for legacy
+    fromUserId: callData.callerId, // Added for consistency with Socket/Frontend
     callerName,
     nameCaller: callerName,
     handle: callType === 'video' ? 'Video Call' : 'Audio Call',
