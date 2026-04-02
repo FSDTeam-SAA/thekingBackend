@@ -223,13 +223,25 @@ const userSchema = new Schema(
 
     // FCM device tokens for push notifications
     // Unified device tokens (Hybrid Approach)
-    fcmToken: { type: String, default: null, trim: true }, // For Android & iOS Standard Notifications
-    voipToken: { type: String, default: null, trim: true }, // For iOS direct APNs calls
+    fcmToken: { type: String, default: null, trim: true }, // Legacy single token
+    voipToken: { type: String, default: null, trim: true }, // Legacy single VoIP token
     devicePlatform: { 
       type: String, 
       enum: ["android", "ios", "web", null], 
       default: null 
     },
+
+    // Modern Multi-Device Management
+    devices: [
+      {
+        deviceId: { type: String, trim: true }, // Hardware ID
+        fcmToken: { type: String, trim: true },
+        voipToken: { type: String, trim: true },
+        platform: { type: String, enum: ["android", "ios", "web"] },
+        lastUsed: { type: Date, default: Date.now },
+        isActive: { type: Boolean, default: true }
+      }
+    ],
 
     review: [
       {

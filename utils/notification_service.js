@@ -85,9 +85,9 @@ export const initializeNotifications = () => {
 };
 
 /**
- * 📞 Send Call Notification (Hybrid Approach)
- * - Android: Node.js -> Firebase -> Android
- * - iOS: Node.js -> Direct APNs -> iOS (CallKit)
+ * 📞 Send Call Notification (Hybrid & Multi-Device Approach)
+ * - iOS: Direct APNs (VoIP) to all registered iOS devices.
+ * - Android: Firebase to all registered Android devices.
  */
 export const sendCallNotification = async (receiver, callData) => {
   const { callerName, callType = 'audio' } = callData;
@@ -104,59 +104,79 @@ export const sendCallNotification = async (receiver, callData) => {
     timestamp: callData.timestamp || new Date().toISOString(),
   };
 
-  // 1. iOS PATHWAY (Direct to Apple)
-  if (receiver.devicePlatform === 'ios' && receiver.voipToken && apnProvider) {
-    try {
-      const notification = new apn.Notification();
-      notification.expiry = Math.floor(Date.now() / 1000) + 30; // 30 SECONDS! Prevent old calls from ringing.
-      notification.priority = 10;
-      notification.pushType = 'voip';
-      notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
-      notification.contentAvailable = 1;
-      notification.mutableContent = 1;
-      notification.payload = normalizedPayload;
+  const results = [];
 
-      // For VoIP pushes (PushKit), Apple strictly forbids standard 'alert', 'sound', or 'badge' keys.
-      // The push must be entirely silent and handled natively via CallKit.
-      // notification.alert = ... (REMOVED to prevent Apple rejection)
+  // Identify all target tokens (Modern & Legacy)
+  const iosVoipTokens = new Set();
+  const androidFcmTokens = new Set();
+  const iosFcmTokens = new Set(); // For fallback standard pushes
 
-      const result = await apnProvider.send(notification, receiver.voipToken);
-      console.log('📱 Direct APNs Call Result:', result.sent.length ? 'Sent' : 'Failed');
-      return { success: result.sent.length > 0, path: 'apns' };
-    } catch (error) {
-      console.error('❌ APNs sending error:', error);
+  if (receiver.devices && Array.isArray(receiver.devices)) {
+    receiver.devices.forEach(d => {
+      if (!d.isActive) return;
+      if (d.platform === 'ios') {
+        if (d.voipToken) iosVoipTokens.add(d.voipToken);
+        if (d.fcmToken) iosFcmTokens.add(d.fcmToken);
+      } else {
+        if (d.fcmToken) androidFcmTokens.add(d.fcmToken);
+      }
+    });
+  }
+
+  // Legacy fallback
+  if (receiver.devicePlatform === 'ios' && receiver.voipToken) iosVoipTokens.add(receiver.voipToken);
+  if (receiver.devicePlatform === 'ios' && receiver.fcmToken) iosFcmTokens.add(receiver.fcmToken);
+  if (receiver.devicePlatform === 'android' && receiver.fcmToken) androidFcmTokens.add(receiver.fcmToken);
+  if (!receiver.devicePlatform && receiver.fcmToken) androidFcmTokens.add(receiver.fcmToken);
+
+  // 1. Send Direct APNs to all iOS VoIP Tokens
+  if (apnProvider && iosVoipTokens.size > 0) {
+    for (const token of iosVoipTokens) {
+      try {
+        const notification = new apn.Notification();
+        notification.expiry = Math.floor(Date.now() / 1000) + 30;
+        notification.priority = 10;
+        notification.pushType = 'voip';
+        notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
+        notification.payload = normalizedPayload;
+        
+        await apnProvider.send(notification, token);
+        console.log(`📱 Direct APNs Call sent to device for ${receiver._id}`);
+        results.push({ path: 'apns', success: true });
+      } catch (err) {
+        console.error('❌ APNs single send error:', err);
+      }
     }
   }
 
-  // 2. ANDROID / FALLBACK PATHWAY (Firebase)
-  if (receiver.fcmToken) {
-    try {
-      const message = {
-        data: {
-          ...Object.fromEntries(
-            Object.entries(normalizedPayload).map(([k, v]) => [k, String(v)])
-          ),
-          callType: String(callType),
-        },
-        android: { priority: 'high', ttl: 30000 }, // 30 seconds
-        apns: {
-          headers: {
-            'apns-expiration': String(Math.floor(Date.now() / 1000) + 30), // Prevent stale FCM delivery to iOS
-            'apns-priority': '10',
+  // 2. Send Firebase to all Android or fallback iOS devices
+  const allFcmTokens = [...androidFcmTokens, ...iosFcmTokens];
+  if (allFcmTokens.length > 0) {
+    for (const token of allFcmTokens) {
+      try {
+        const message = {
+          data: {
+            ...Object.fromEntries(
+              Object.entries(normalizedPayload).map(([k, v]) => [k, String(v)])
+            ),
+            callType: String(callType),
           },
-        },
-        token: receiver.fcmToken,
-      };
-
-      const response = await admin.messaging().send(message);
-      console.log('📱 Firebase Call Result: Sent', response);
-      return { success: true, path: 'firebase' };
-    } catch (error) {
-      console.error('❌ Firebase sending error:', error);
+          android: { priority: 'high', ttl: 30000 },
+          token: token,
+        };
+        await admin.messaging().send(message);
+        console.log(`📱 Firebase Call sent to device for ${receiver._id}`);
+        results.push({ path: 'firebase', success: true });
+      } catch (err) {
+        console.error('❌ Firebase single send error:', err);
+      }
     }
   }
 
-  return { success: false, message: 'No valid tokens found' };
+  return { 
+    success: results.some(r => r.success), 
+    deviceCount: results.length 
+  };
 };
 
 /**

@@ -184,34 +184,49 @@ export const sendSingleFCMNotification = async (token, notification, data = {}) 
  */
 export const sendFCMNotificationToUsers = async (userIds, notification, data = {}, UserModel) => {
   try {
-    // Support both the legacy fcmTokens[] schema and the current single fcmToken schema.
+    // Support: New devices[] array, Legacy fcmTokens[] array, and Legacy single fcmToken string.
     const users = await UserModel.find({
       _id: { $in: userIds },
       $or: [
+        { 'devices.fcmToken': { $exists: true, $ne: null } },
         { 'fcmTokens.isActive': true },
         { fcmToken: { $exists: true, $ne: null } },
       ],
-    }).select('fcmTokens fcmToken devicePlatform');
+    }).select('devices fcmTokens fcmToken devicePlatform');
 
     if (!users || !users.length) {
-      console.log('⚠️ No users found with active FCM tokens');
+      console.log('⚠️ No users found with any active device tokens');
       return { success: false, message: 'No users with active tokens' };
     }
 
     // Collect all active tokens
     const tokenMap = new Map();
     users.forEach(user => {
-      if (user.fcmTokens && Array.isArray(user.fcmTokens)) {
-        user.fcmTokens.forEach(fcmToken => {
-          if (fcmToken.isActive) {
-            tokenMap.set(fcmToken.token, {
+      // 1. New Professional Multi-Device Schema
+      if (user.devices && Array.isArray(user.devices)) {
+        user.devices.forEach(device => {
+          if (device.fcmToken && device.isActive !== false) {
+            tokenMap.set(device.fcmToken, {
               userId: user._id.toString(),
-              platform: fcmToken.platform
+              platform: device.platform || 'unknown'
             });
           }
         });
       }
 
+      // 2. Legacy fcmTokens Array Schema (Compatibility)
+      if (user.fcmTokens && Array.isArray(user.fcmTokens)) {
+        user.fcmTokens.forEach(fcmToken => {
+          if (fcmToken.isActive) {
+            tokenMap.set(fcmToken.token, {
+              userId: user._id.toString(),
+              platform: fcmToken.platform || 'unknown'
+            });
+          }
+        });
+      }
+
+      // 3. Legacy single fcmToken string (Compatibility)
       if (user.fcmToken && typeof user.fcmToken === 'string') {
         tokenMap.set(user.fcmToken, {
           userId: user._id.toString(),
