@@ -203,6 +203,45 @@ export const acceptCall = catchAsync(async (req, res) => {
 });
 
 /**
+ * Reject a call (Signal via API to caller)
+ * POST /api/v1/call/reject
+ */
+export const rejectCall = catchAsync(async (req, res) => {
+  const { chatId, toUserId } = req.body; // toUserId is the CALLER's ID
+  const receiverId = req.user._id;
+
+  if (!chatId || !toUserId) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "chatId and toUserId are required"
+    );
+  }
+
+  const rejectPayload = {
+    chatId: String(chatId),
+    fromUserId: String(receiverId), // Me (the one who rejected)
+    timestamp: new Date().toISOString(),
+  };
+
+  // ✅ Signal caller that the call was rejected
+  io.to(String(toUserId)).emit("call:rejected", rejectPayload);
+  io.to(String(toUserId)).emit("call:ended", rejectPayload);
+  io.to(String(toUserId)).emit("call:end", rejectPayload);
+
+  io.to(`chat_${toUserId}`).emit("call:rejected", rejectPayload);
+  io.to(`chat_${toUserId}`).emit("call:ended", rejectPayload);
+  io.to(`chat_${toUserId}`).emit("call:end", rejectPayload);
+
+  console.log(`📞 Call REJECTED via API by ${receiverId} -> to ${toUserId}`);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Call rejected signal sent",
+  });
+});
+
+/**
  * Generate Agora Token
  * GET /api/v1/call/token?channelName=...
  */
