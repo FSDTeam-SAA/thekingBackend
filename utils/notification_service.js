@@ -152,7 +152,12 @@ export const sendCallNotification = async (receiver, callData) => {
   }
 
   // 2. Send Firebase to all Android or fallback iOS devices
-  const allFcmTokens = [...androidFcmTokens, ...iosFcmTokens];
+  // ✅ ENHANCEMENT: For CALLS on iOS, we ONLY use VoIP. Sending FCM for calls on iOS 
+  // causes a secondary "Ghost Screen" because VoIP already triggers CallKit natives.
+  const allFcmTokens = (normalizedPayload.type === 'incoming_call')
+    ? [...androidFcmTokens] // Only Android for Calls
+    : [...androidFcmTokens, ...iosFcmTokens]; // Everyone for normal messages
+
   if (allFcmTokens.length > 0) {
     for (const token of allFcmTokens) {
       try {
@@ -167,7 +172,7 @@ export const sendCallNotification = async (receiver, callData) => {
           token: token,
         };
         await admin.messaging().send(message);
-        console.log(`📱 Firebase Call sent to device for ${receiver._id}`);
+        console.log(`📱 Firebase notification sent for type: ${normalizedPayload.type}`);
         results.push({ path: 'firebase', success: true });
       } catch (err) {
         console.error('❌ Firebase single send error:', err);
