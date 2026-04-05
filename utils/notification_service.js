@@ -68,12 +68,13 @@ export const initializeNotifications = () => {
 
     if (certPath) {
       try {
+        const isProduction = process.env.APNS_PRODUCTION === 'true' || process.env.NODE_ENV === 'production';
         apnProvider = new apn.Provider({
           pfx: certPath,
           passphrase: process.env.APNS_VOIP_PASSPHRASE || '',
-          production: process.env.NODE_ENV === 'production',
+          production: isProduction,
         });
-        console.log(`✅ Direct APNs Provider initialized using: ${certPath}`);
+        console.log(`✅ Direct APNs Provider initialized using: ${certPath} | Mode: ${isProduction ? 'Production' : 'Sandbox (Development)'}`);
       } catch (error) {
         console.error('❌ Direct APNs initialization error:', error);
       }
@@ -141,11 +142,17 @@ export const sendCallNotification = async (receiver, callData) => {
         notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
         notification.payload = normalizedPayload;
         
-        await apnProvider.send(notification, token);
-        console.log(`📱 Direct APNs Call sent to device for ${receiver._id}`);
-        results.push({ path: 'apns', success: true });
+        const response = await apnProvider.send(notification, token);
+        if (response.failed.length > 0) {
+          console.error(`❌ APNs send FAILED for device ${receiver._id}:`, JSON.stringify(response.failed[0].response));
+          results.push({ path: 'apns', success: false, error: response.failed[0].response?.reason });
+        } else {
+          console.log(`📱 Direct APNs Call sent successfully to device for ${receiver._id}`);
+          results.push({ path: 'apns', success: true });
+        }
       } catch (err) {
-        console.error('❌ APNs single send error:', err);
+        console.error('❌ APNs system send error:', err);
+        results.push({ path: 'apns', success: false, error: err.message });
       }
     }
   }
@@ -258,10 +265,14 @@ export const sendCallCancelNotification = async (receiver, data) => {
         notification.contentAvailable = 1;
         notification.payload = cancelPayload;
         
-        await apnProvider.send(notification, token);
-        console.log(`📴 Direct APNs Cancel sent for ${receiver._id}`);
+        const response = await apnProvider.send(notification, token);
+        if (response.failed.length > 0) {
+          console.error(`❌ APNs Cancel FAILED for device ${receiver._id}:`, JSON.stringify(response.failed[0].response));
+        } else {
+          console.log(`📴 Direct APNs Cancel sent successfully for ${receiver._id}`);
+        }
       } catch (error) {
-        console.error('❌ APNs Cancel Error:', error);
+        console.error('❌ APNs Cancel system error:', error);
       }
     }
   }
