@@ -139,19 +139,20 @@ export const sendCallNotification = async (receiver, callData) => {
         notification.expiry = Math.floor(Date.now() / 1000) + 30;
         notification.priority = 10;
         notification.pushType = 'voip';
-        notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
-        notification.payload = normalizedPayload;
-        
         const response = await apnProvider.send(notification, token);
         if (response.failed.length > 0) {
-          console.error(`❌ APNs send FAILED for device ${receiver._id}:`, JSON.stringify(response.failed[0].response));
-          results.push({ path: 'apns', success: false, error: response.failed[0].response?.reason });
+          const failure = response.failed[0];
+          console.error(`❌ APNs send FAILED for device ${receiver._id}:`);
+          console.error(`   - Status: ${failure.status || 'N/A'}`);
+          console.error(`   - Error: ${failure.error || 'N/A'}`);
+          console.error(`   - Response: ${JSON.stringify(failure.response || 'No response from Apple')}`);
+          results.push({ path: 'apns', success: false, error: failure.response?.reason || failure.error?.message });
         } else {
           console.log(`📱 Direct APNs Call sent successfully to device for ${receiver._id}`);
           results.push({ path: 'apns', success: true });
         }
       } catch (err) {
-        console.error('❌ APNs system send error:', err);
+        console.error('❌ APNs system send error (Check VPS Firewall/Cert):', err);
         results.push({ path: 'apns', success: false, error: err.message });
       }
     }
@@ -267,12 +268,16 @@ export const sendCallCancelNotification = async (receiver, data) => {
         
         const response = await apnProvider.send(notification, token);
         if (response.failed.length > 0) {
-          console.error(`❌ APNs Cancel FAILED for device ${receiver._id}:`, JSON.stringify(response.failed[0].response));
+          const failure = response.failed[0];
+          console.error(`❌ APNs Cancel FAILED for device ${receiver._id}:`);
+          console.error(`   - Status: ${failure.status || 'N/A'}`);
+          console.error(`   - Error: ${failure.error || 'N/A'}`);
+          console.error(`   - Response: ${JSON.stringify(failure.response || 'No response from Apple')}`);
         } else {
           console.log(`📴 Direct APNs Cancel sent successfully for ${receiver._id}`);
         }
       } catch (error) {
-        console.error('❌ APNs Cancel system error:', error);
+        console.error('❌ APNs Cancel system error (Check VPS Firewall/Cert):', error);
       }
     }
   }
