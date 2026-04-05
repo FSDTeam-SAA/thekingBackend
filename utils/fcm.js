@@ -283,10 +283,17 @@ export const cleanupInactiveTokens = async (tokens, UserModel) => {
     console.log(`🧹 Cleaning up ${tokens.length} inactive FCM tokens`);
 
     await Promise.all([
+      // 1. Professional Multi-Device Schema
+      UserModel.updateMany(
+        { 'devices.fcmToken': { $in: tokens } },
+        { $pull: { devices: { fcmToken: { $in: tokens } } } }
+      ),
+      // 2. Legacy fcmTokens Array Schema
       UserModel.updateMany(
         { 'fcmTokens.token': { $in: tokens } },
         { $pull: { fcmTokens: { token: { $in: tokens } } } }
       ),
+      // 3. Legacy single fcmToken string
       UserModel.updateMany(
         { fcmToken: { $in: tokens } },
         { $set: { fcmToken: null } }

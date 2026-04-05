@@ -129,6 +129,7 @@ export const endCall = catchAsync(async (req, res) => {
 
   const endPayload = {
     chatId: String(chatId),
+    uuid: String(uuid || ""),
     timestamp: new Date().toISOString(),
   };
 
@@ -138,7 +139,9 @@ export const endCall = catchAsync(async (req, res) => {
   io.to(String(userId)).emit("call:ended", endPayload);
   io.to(String(userId)).emit("call:end", endPayload);
 
-  console.log(`📴 Call end emitted to: chat_${userId} & ${userId}`);
+  console.log(
+    `📴 Call end emitted to: chat_${userId} & ${userId} | UUID: ${uuid || "none"}`
+  );
 
   // ✅ Send Cancel Notification via Unified Service
   try {

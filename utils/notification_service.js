@@ -52,34 +52,33 @@ export const initializeNotifications = () => {
 
   // 2. Initialize Direct APNs (.p12 Hybrid Approach)
   if (!apnProvider) {
-    const rawCertPath =
-      process.env.APNS_VOIP_CERT_PATH || '/Users/Yeasin/Downloads/voip_auth.p12';
-    const candidatePaths = path.isAbsolute(rawCertPath)
-      ? [rawCertPath]
-      : [
-          path.resolve(process.cwd(), rawCertPath),
-          path.resolve(moduleDir, '..', rawCertPath),
-        ];
-    const certPath = candidatePaths.find((candidate) => fs.existsSync(candidate));
-
-    if (!certPath) {
-      console.error(
-        `❌ APNs VoIP certificate not found. Checked: ${candidatePaths.join(', ')}`,
-      );
-      return;
-    }
+    const rawCertPath = process.env.APNS_VOIP_CERT_PATH || 'voip_auth.p12';
     
-    const options = {
-      pfx: certPath,
-      passphrase: process.env.APNS_VOIP_PASSPHRASE || '',
-      production: process.env.NODE_ENV === 'production',
-    };
+    // Check various paths for the certificate (including the one in utils and project root)
+    const candidatePaths = [
+      rawCertPath,
+      path.resolve(process.cwd(), rawCertPath),
+      path.resolve(moduleDir, rawCertPath),
+      path.resolve(moduleDir, '..', rawCertPath),
+      path.resolve(moduleDir, 'voip_auth.p12'),
+      path.resolve(process.cwd(), 'thekingBackend/utils', 'voip_auth.p12')
+    ];
+    
+    const certPath = candidatePaths.find((candidate) => candidate && fs.existsSync(candidate));
 
-    try {
-      apnProvider = new apn.Provider(options);
-      console.log('✅ Direct APNs Provider initialized using .p12');
-    } catch (error) {
-      console.error('❌ Direct APNs initialization error:', error);
+    if (certPath) {
+      try {
+        apnProvider = new apn.Provider({
+          pfx: certPath,
+          passphrase: process.env.APNS_VOIP_PASSPHRASE || '',
+          production: process.env.NODE_ENV === 'production',
+        });
+        console.log(`✅ Direct APNs Provider initialized using: ${certPath}`);
+      } catch (error) {
+        console.error('❌ Direct APNs initialization error:', error);
+      }
+    } else {
+      console.warn('⚠️ APNs VoIP certificate not found. Calls to iOS may fail when app is closed.');
     }
   }
 };
@@ -217,41 +216,81 @@ export const sendStandardNotification = async (token, notification, data = {}) =
  */
 export const sendCallCancelNotification = async (receiver, data) => {
   const { chatId, uuid } = data;
+  if (!chatId) return;
 
-  // 1. iOS PATHWAY (Direct APNs)
-  if (receiver.devicePlatform === 'ios' && receiver.voipToken && apnProvider) {
-    try {
-      const notification = new apn.Notification();
-      notification.pushType = 'voip';
-      notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
-      notification.priority = 10;
-      notification.contentAvailable = 1;
-      notification.payload = {
-        type: 'cancel_call',
-        chatId: String(chatId),
-        uuid: String(uuid || ''),
-      };
-      
-      await apnProvider.send(notification, receiver.voipToken);
-    } catch (error) {
-      console.error('❌ APNs Cancel Error:', error);
+  const cancelPayload = {
+    type: 'cancel_call',
+    chatId: String(chatId),
+    uuid: String(uuid || ''),
+    timestamp: new Date().toISOString(),
+  };
+
+  const iosVoipTokens = new Set();
+  const fcmTokens = new Set();
+
+  // 1. Identify all target tokens (Modern & Legacy)
+  if (receiver.devices && Array.isArray(receiver.devices)) {
+    receiver.devices.forEach(d => {
+      if (!d.isActive) return;
+      if (d.platform === 'ios') {
+        if (d.voipToken) iosVoipTokens.add(d.voipToken);
+        if (d.fcmToken) fcmTokens.add(d.fcmToken); // Android/FCM logic handles cancel
+      } else {
+        if (d.fcmToken) fcmTokens.add(d.fcmToken);
+      }
+    });
+  }
+
+  // Legacy fallback
+  if (receiver.devicePlatform === 'ios' && receiver.voipToken) iosVoipTokens.add(receiver.voipToken);
+  if (receiver.fcmToken) fcmTokens.add(receiver.fcmToken);
+
+  // 2. iOS PATHWAY (Direct APNs VoIP) - Most reliable for CallKit cleanup
+  if (apnProvider && iosVoipTokens.size > 0) {
+    for (const token of iosVoipTokens) {
+      try {
+        const notification = new apn.Notification();
+        notification.pushType = 'voip';
+        notification.topic = `${process.env.IOS_BUNDLE_ID}.voip`;
+        notification.priority = 10;
+        notification.contentAvailable = 1;
+        notification.payload = cancelPayload;
+        
+        await apnProvider.send(notification, token);
+        console.log(`📴 Direct APNs Cancel sent for ${receiver._id}`);
+      } catch (error) {
+        console.error('❌ APNs Cancel Error:', error);
+      }
     }
   }
 
-  // 2. ANDROID / FALLBACK (Firebase)
-  if (receiver.fcmToken) {
-    try {
-      const message = {
-        data: {
-          type: 'cancel_call',
-          chatId: String(chatId),
-          uuid: String(uuid || ''),
-        },
-        token: receiver.fcmToken,
-      };
-      await admin.messaging().send(message);
-    } catch (error) {
-      console.error('❌ Firebase Cancel Error:', error);
+  // 3. ANDROID / FALLBACK (Firebase)
+  if (fcmTokens.size > 0) {
+    for (const token of fcmTokens) {
+      try {
+        const message = {
+          data: {
+            ...cancelPayload,
+            // Ensure strings for FCM
+            type: 'cancel_call',
+            chatId: String(chatId),
+            uuid: String(uuid || ''),
+          },
+          android: { priority: 'high', ttl: 0 },
+          apns: {
+            payload: { aps: { 'content-available': 1 } },
+            headers: { 'apns-priority': '10' }
+          },
+          token: token,
+        };
+        await admin.messaging().send(message);
+        console.log(`📴 Firebase Cancel sent to token for ${receiver._id}`);
+      } catch (error) {
+        // Silently skip expired tokens
+        if (error.code !== 'messaging/registration-token-not-registered') {
+          console.error('❌ Firebase Cancel Error:', error);
+        }
+      }
     }
   }
 };
