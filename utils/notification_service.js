@@ -150,11 +150,15 @@ export const sendCallNotification = async (receiver, callData) => {
         const response = await apnProvider.send(notification, token);
         if (response.failed.length > 0) {
           const failure = response.failed[0];
-          console.error(`❌ APNs send FAILED for device ${receiver._id}:`);
-          console.error(`   - Status: ${failure.status || 'N/A'}`);
-          console.error(`   - Error: ${failure.error || 'N/A'}`);
-          console.error(`   - Response: ${JSON.stringify(failure.response || 'No response from Apple')}`);
-          results.push({ path: 'apns', success: false, error: failure.response?.reason || failure.error?.message });
+          const reason = failure.response?.reason || failure.error?.message;
+          console.error(`❌ APNs send FAILED for device ${receiver._id}: ${reason}`);
+          
+          if (reason === 'BadDeviceToken' || reason === 'Unregistered') {
+            console.warn(`👉 IMPORTANT: ${reason} detected. This specific device token is invalid for the current Production gateway.`);
+            console.warn('👉 FIX: The user MUST LOGOUT and LOGIN again in the TestFlight app to refresh a valid Production VoIP Token.');
+            console.warn('👉 Without a valid Production token, Calls will NOT ring in Background/Terminated state.');
+          }
+          results.push({ path: 'apns', success: false, error: reason });
         } else {
           console.log(`📱 Direct APNs Call sent successfully to device for ${receiver._id}`);
           results.push({ path: 'apns', success: true });
