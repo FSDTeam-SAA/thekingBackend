@@ -279,8 +279,16 @@ export const sendCallCancelNotification = async (receiver, data) => {
           },
           android: { priority: 'high', ttl: 0 },
           apns: {
-            payload: { aps: { 'content-available': 1 } },
-            headers: { 'apns-priority': '10' }
+            payload: { 
+              aps: { 
+                'content-available': 1,
+                'mutable-content': 1
+              } 
+            },
+            headers: { 
+              'apns-priority': '10',
+              'apns-push-type': 'background'
+            }
           },
           token: token,
         };
