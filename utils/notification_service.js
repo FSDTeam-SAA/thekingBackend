@@ -76,7 +76,15 @@ export const initializeNotifications = () => {
         });
         console.log(`✅ Direct APNs Provider initialized using: ${certPath} | Mode: ${isProduction ? 'Production' : 'Sandbox (Development)'}`);
       } catch (error) {
-        console.error('❌ Direct APNs initialization error:', error);
+        if (error.message.includes('Unsupported PKCS12')) {
+          console.error('❌ CRITICAL APNs ERROR: Unsupported PKCS12 PFX data.');
+          console.error('👉 FIX: Your .p12 certificate encoding is not supported by this Node.js version.');
+          console.error('👉 RUN this command on your Mac to convert it:');
+          console.error('   openssl pkcs12 -in voip_auth.p12 -nodes -out voip_auth_new.p12 -legacy');
+          console.error('👉 Then upload "voip_auth_new.p12" and update your .env file.');
+        } else {
+          console.error('❌ Direct APNs initialization error:', error);
+        }
       }
     } else {
       console.warn('⚠️ APNs VoIP certificate not found. Calls to iOS may fail when app is closed.');
