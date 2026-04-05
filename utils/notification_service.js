@@ -221,6 +221,7 @@ export const sendCallCancelNotification = async (receiver, data) => {
   const cancelPayload = {
     type: 'cancel_call',
     chatId: String(chatId),
+    id: String(uuid || ''), // Added for native iOS lookup
     uuid: String(uuid || ''),
     timestamp: new Date().toISOString(),
   };
