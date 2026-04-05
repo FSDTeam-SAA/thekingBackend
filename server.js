@@ -215,20 +215,23 @@ io.on("connection", (socket) => {
     io.to(`chat_${toUserId}`).emit("call:switch_response", data);
   });
 
-  socket.on("call:end", ({ toUserId, chatId }) => {
+  socket.on("call:end", (data) => {
+    const { toUserId } = data;
     if (!toUserId) return;
-    io.to(`chat_${toUserId}`).emit("call:ended", { chatId });
+    io.to(`chat_${toUserId}`).emit("call:ended", data);
   });
 
-  socket.on("call:reject", ({ toUserId, chatId }) => {
+  socket.on("call:reject", (data) => {
+    const { toUserId, chatId } = data;
     if (!toUserId) return;
-    io.to(`chat_${toUserId}`).emit("call:rejected", { chatId });
+    io.to(`chat_${toUserId}`).emit("call:rejected", data);
     console.log(`❌ Call rejected in chat: ${chatId} for user: ${toUserId}`);
   });
 
-  socket.on("call:accept", ({ fromUserId, chatId }) => {
+  socket.on("call:accept", (data) => {
+    const { fromUserId, chatId } = data;
     if (!fromUserId) return;
-    io.to(`chat_${fromUserId}`).emit("call:accepted", { chatId });
+    io.to(`chat_${fromUserId}`).emit("call:accepted", data);
     console.log(`✅ Call accepted in chat: ${chatId} by user: ${fromUserId}`);
   });
 
