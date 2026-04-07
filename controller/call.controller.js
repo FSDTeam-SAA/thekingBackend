@@ -60,6 +60,25 @@ export const initiateCall = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Receiver not found");
   }
 
+  // ✅ ENFORCE CALL RESTRICTIONS
+  if (receiver.role === "doctor") {
+    // 1. Master Toggle: If calls are globally disabled
+    if (receiver.isVideoCallAvailable === false) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        "Doctor has disabled all incoming calls temporarily."
+      );
+    }
+
+    // 2. Appointment Toggle: If online appointments are disabled (Patients restricted, Doctors allowed)
+    if (receiver.isOnlineAppointmentAvailable === false && req.user.role === "patient") {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        "Online consultations are currently disabled for this doctor."
+      );
+    }
+  }
+
   // ✅ ONE UUID for both socket + FCM — prevents double CallKit UI
   const callUuid = uuidv4();
   const callTimestamp = new Date().toISOString();

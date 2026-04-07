@@ -101,6 +101,12 @@ const userSchema = new Schema(
       description: "Whether doctor offers video consultation",
     },
 
+    isOnlineAppointmentAvailable: {
+      type: Boolean,
+      default: true,
+      description: "Whether doctor accepts online appointments",
+    },
+
     // gender: {
     //   type: String,
     //   enum: [

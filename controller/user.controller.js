@@ -763,6 +763,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     isVideoCallAvailable, // ✅ NEW: Support for main key
     isVideoAvailable, // ✅ NEW: Support for redundant key 1
     isAvailable, // ✅ NEW: Support for redundant key 2
+    isOnlineAppointmentAvailable, // ✅ NEW: Support for Appointment setting toggle
   } = req.body;
 
   const user = await User.findById(req.user._id);
@@ -924,6 +925,14 @@ export const updateProfile = catchAsync(async (req, res) => {
       const boolVal = parseBooleanInput(availabilityInput);
       if (boolVal !== undefined) {
         user.isVideoCallAvailable = boolVal;
+      }
+    }
+
+    // ✅ NEW: Handle Online Appointment Availability toggle
+    if (isOnlineAppointmentAvailable !== undefined) {
+      const boolVal = parseBooleanInput(isOnlineAppointmentAvailable);
+      if (boolVal !== undefined) {
+        user.isOnlineAppointmentAvailable = boolVal;
       }
     }
   }
