@@ -322,6 +322,7 @@ export const sendMessage = catchAsync(async (req, res) => {
         content: content || notificationBody,
         contentType: finalContentType,
         clickAction: "FLUTTER_NOTIFICATION_CLICK",
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
       },
       User
     ).catch((err) =>
