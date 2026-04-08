@@ -255,7 +255,7 @@ export const register = catchAsync(async (req, res) => {
         patients.map(async (patient) => {
           createNotification({
             userId: patient._id,
-            fromUserId: patient._id,
+            fromUserId: newUser._id,
             type: "doctor_signup",
             title: "New Doctor Registered",
             content: `A new doctor, Dr. ${newUser.fullName}, specialized in ${newUser.specialty} has joined our platform.`,

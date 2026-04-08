@@ -38,7 +38,9 @@ try {
   console.error("❌ Firebase Init Error:", error.message);
 }
 
-//type enums: doctor_signup, doctor_approved, appointment_created, appointment_status_change
+import { sendFCMNotificationToUsers } from "./fcm.js";
+
+//type enums: doctor_signup, doctor_approved, appointment_booked, appointment_confirmed, appointment_cancelled, appointment_completed, appointment_status_change
 
 
 export const createNotification = async ({
@@ -48,7 +50,7 @@ export const createNotification = async ({
   title,
   content,
   appointmentId,
-  meta,
+  meta = {},
 }) => {
   try {
     if (!userId || !type || !title || !content) {
@@ -68,9 +70,11 @@ export const createNotification = async ({
       "post_commented",
       "reel_liked",
       "reel_commented",
+      "new_message",
+      "incoming_call",
     ];
     if (!validTypes.includes(type)) {
-      return { success: false, message: "Invalid notification type" };
+      console.warn(`⚠️ Invalid notification type: ${type}`);
     }
 
     // Create database notification
@@ -87,87 +91,27 @@ export const createNotification = async ({
     // ✅ SEND PUSH NOTIFICATION (Non-blocking)
     setImmediate(async () => {
       try {
-        if (admin.apps.length) {
-          const recipient = await User.findById(userId).select("fcmTokens");
+        const payload = {
+          title: title,
+          body: content,
+          sound: "default",
+          badge: "1",
+        };
 
-          // Filter active tokens
-          const tokens = (recipient?.fcmTokens || [])
-            .filter(t => t.isActive)
-            .map(t => t.token);
+        const data = {
+          type: type,
+          appointmentId: appointmentId ? String(appointmentId) : "",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK", // Standard key used in FCM
+          click_action: "FLUTTER_NOTIFICATION_CLICK", // Compatibility key
+          ...(meta || {}),
+        };
 
-          if (tokens.length > 0) {
-            // Enhanced payload with high priority
-            const message = {
-              notification: {
-                title: title,
-                body: content
-              },
-              data: {
-                type: type,
-                appointmentId: appointmentId ? String(appointmentId) : "",
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-              },
-              android: {
-                priority: 'high',
-                ttl: 0, // 0 for immediate delivery
-                notification: {
-                  sound: 'default',
-                  channel_id: 'docmobi_notifications', // Matches Flutter config
-                  priority: 'max',
-                  visibility: 'public',
-                },
-              },
-              apns: {
-                payload: {
-                  aps: {
-                    sound: 'default',
-                    badge: 1,
-                    'content-available': 1,
-                    'mutable-content': 1,
-                  },
-                },
-                headers: {
-                  'apns-priority': '10', // 10 for immediate delivery
-                  'apns-push-type': 'alert',
-                },
-              },
-              tokens: tokens
-            };
-
-            // Switch to sendEachForMulticast (v1 recommended)
-            const response = await admin.messaging().sendEachForMulticast(message);
-            console.log(`📲 FCM Sent: ${response.successCount} success, ${response.failureCount} fail`);
-
-            // Cleanup invalid tokens if any
-            if (response.failureCount > 0) {
-              const tokensToRemove = [];
-              response.responses.forEach((resp, idx) => {
-                if (!resp.success) {
-                  const error = resp.error?.code;
-                  // Remove if token is expired or invalid
-                  if (
-                    error === 'messaging/invalid-registration-token' ||
-                    error === 'messaging/registration-token-not-registered'
-                  ) {
-                    tokensToRemove.push(tokens[idx]);
-                  }
-                  console.warn(`⚠️ FCM Token Error [${tokens[idx]}]:`, error);
-                }
-              });
-
-              if (tokensToRemove.length > 0) {
-                await User.findByIdAndUpdate(userId, {
-                  $pull: {
-                    fcmTokens: { token: { $in: tokensToRemove } }
-                  }
-                });
-                console.log(`🧹 Cleaned up ${tokensToRemove.length} invalid FCM tokens for user ${userId}`);
-              }
-            }
-          }
-        } else {
-          console.log(`🔔 notification created (FCM skipped): ${title}`);
-        }
+        await sendFCMNotificationToUsers(
+          [userId.toString()],
+          payload,
+          data,
+          User
+        );
       } catch (fcmError) {
         console.error("❌ FCM Background Error:", fcmError.message);
       }
